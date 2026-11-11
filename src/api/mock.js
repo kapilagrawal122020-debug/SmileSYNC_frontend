@@ -127,7 +127,7 @@ export function resetMock() { try { localStorage.removeItem(KEY); } catch { /* i
 // ---- request parsing -------------------------------------------------------------
 
 const FK = ["patient", "doctor", "chair", "visit", "invoice", "item"];
-const NUM = ["units", "cost", "amount", "quantity", "pack_size", "reorder_level", "rating", "packs", "counted"];
+const NUM = ["units", "cost", "amount", "quantity", "pack_size", "reorder_level", "rating", "packs", "counted", "paid_now"];
 const READONLY = {
   treatments: ["status", "done_at", "stock_deducted", "doctor"],
   chairs: ["status"], items: ["quantity"], feedback: ["reply"], checks: ["status", "taken_by", "taken_at"],
@@ -469,7 +469,16 @@ async function create(db, me, key, body) {
       if (!Array.isArray(data.items) || !data.items.length) throw bad("items", "Add at least one line.");
       rec.items = data.items.map((i) => ({ id: db.seq++, description: i.description, amount: Number(i.amount) }));
       Object.assign(rec, { notes: data.notes || "", visit: data.visit ?? null, created_at: nowIso() });
-      delete rec.apply_advance; // a flag for this request only, not stored
+      // Money already paid, e.g. 20000 of a 34000 bill. Checked against what is due once the advance (if used) is taken off.
+      if (data.paid_now !== undefined && data.paid_now !== null && data.paid_now !== "") {
+        if (!(data.paid_now > 0)) throw bad("paid_now", "Amount must be more than zero.");
+        if (data.paid_method === "advance") throw bad("paid_method", "Use the apply-advance action to pay from an advance.");
+        const total = rec.items.reduce((s, i) => s + i.amount, 0);
+        const credit = data.apply_advance === true ? r2(openAdvances(db, rec.patient).reduce((s, a) => s + advBalance(db, a), 0)) : 0;
+        const left = r2(total - Math.min(total, credit));
+        if (data.paid_now > left) throw bad("paid_now", `More than the amount due (${left}).`);
+      }
+      delete rec.apply_advance; delete rec.paid_now; delete rec.paid_method; delete rec.paid_reference; // flags for this request only
       break;
     case "advances": {
       if (!db.patients.some((p) => p.id === data.patient && p.clinic === me.clinic)) throw bad("patient", "Choose a patient of this clinic.");
@@ -541,7 +550,10 @@ async function create(db, me, key, body) {
   }
   db[key].push(rec);
   if (key === "visits") syncChair(db, rec);
-  if (key === "invoices" && data.apply_advance === true) applyAdvance(db, rec);
+  if (key === "invoices" && data.apply_advance === true) applyAdvance(db, rec); // the advance first, then the money paid now
+  if (key === "invoices" && data.paid_now > 0) {
+    db.payments.push({ id: db.seq++, clinic: rec.clinic, invoice: rec.id, amount: r2(data.paid_now), method: data.paid_method || "cash", reference: data.paid_reference || "", advance: null, paid_at: nowIso() });
+  }
   return out(db, me, key, rec);
 }
 
@@ -626,7 +638,8 @@ function recordAction(db, me, key, rec, name, method, body) {
     const received = sum(advances, (a) => Number(a.amount));
     const used = sum(advances, (a) => advUsed(db, a));
     const refunded = sum(advances, (a) => advRefunded(db, a));
-    return { billed, paid, due: r2(billed - paid), advance_received: received, advance_used: used, advance_refunded: refunded, advance_balance: r2(received - used - refunded) };
+    const balance = r2(received - used - refunded);
+    return { billed, paid, due: r2(billed - paid), advance_received: received, advance_used: used, advance_refunded: refunded, advance_balance: balance, due_after_advance: Math.max(r2(billed - paid - balance), 0) };
   }
   if (key === "invoices" && name === "apply-advance" && method === "POST") {
     applyAdvance(db, rec, data.amount);

@@ -52,7 +52,7 @@ export default function PatientHome() {
                   {advanceLeft > 0 && (
                     <div className="advance-box">
                       <b className="money">Advance paid: {rupees(advanceLeft)} available</b>
-                      <span className="muted small">Your clinic adjusts this against your bill.</span>
+                      <span className="muted small">Your clinic adjusts this against your bill.{due > 0 ? ` After that, ${rupees(Math.max(due - advanceLeft, 0))} is left to pay.` : ""}</span>
                     </div>
                   )}
                   <p className="big">{due > 0 ? <>Due: <b>{rupees(due)}</b></> : <>All paid <Badge tone="green">Thank you</Badge></>}</p>

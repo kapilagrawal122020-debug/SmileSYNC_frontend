@@ -34,11 +34,18 @@ export default function Billing({ patientId }) {
   return (
     <>
       {summary.data && (
-        <div className="stats small">
+        <div className="stats small four">
           <Stat label="Billed" value={rupees(summary.data.billed)} />
           <Stat label="Paid" value={rupees(summary.data.paid)} />
           <Stat label="Due" value={rupees(summary.data.due)} tone={num(summary.data.due) > 0 ? "warn" : ""} />
           <Stat label="Advance available" value={rupees(available)} tone={available > 0 ? "credit" : ""} />
+        </div>
+      )}
+
+      {summary.data && available > 0 && num(summary.data.due) > 0 && (
+        <div className="advance-box">
+          <b className="money">{rupees(available)} advance is not used on any invoice yet.</b>
+          <span className="small">If you use it, {rupees(summary.data.due_after_advance)} is left to pay.</span>
         </div>
       )}
 
@@ -61,6 +68,7 @@ export default function Billing({ patientId }) {
               {rows.map((inv) => {
                 const due = num(inv.due);
                 const fromAdvance = num(inv.advance_applied);
+                const percent = num(inv.total) > 0 ? Math.min(100, Math.round((num(inv.paid) / num(inv.total)) * 100)) : 0;
                 return (
                   <li key={inv.id} className="list-row col">
                     <div className="row gap spread wrap">
@@ -72,8 +80,11 @@ export default function Billing({ patientId }) {
                       </div>
                     </div>
                     <div className="muted small">{inv.items.map((i) => `${i.description} ${rupees(i.amount)}`).join(" · ")}</div>
-                    <div className="small money">
-                      Total {rupees(inv.total)} · Paid {rupees(inv.paid)}{fromAdvance > 0 && <span className="muted"> (advance {rupees(fromAdvance)})</span>}
+                    <div className="meter" role="img" aria-label={`Paid ${rupees(inv.paid)} of ${rupees(inv.total)}`}><span style={{ width: `${percent}%` }} /></div>
+                    <div className="row spread wrap gap small money">
+                      <span>Total <b>{rupees(inv.total)}</b></span>
+                      <span>Paid <b>{rupees(inv.paid)}</b>{fromAdvance > 0 && <span className="muted"> (advance {rupees(fromAdvance)})</span>}</span>
+                      <span className={due > 0 ? "text-due" : ""}>Due <b>{rupees(due)}</b></span>
                     </div>
                     {inv.payments?.length > 0 && (
                       <ul className="pay-lines muted small">
@@ -197,17 +208,26 @@ function InvoiceModal({ patientId, available, onClose, onSaved }) {
   const toast = useToast();
   const [items, setItems] = useState([{ description: "", amount: "" }]);
   const [useAdvance, setUseAdvance] = useState(available > 0);
+  const [paid, setPaid] = useState({ amount: "", method: "cash", reference: "" });
   const change = (i, k) => (e) => setItems((rows) => rows.map((r, j) => (j === i ? { ...r, [k]: e.target.value } : r)));
   const total = items.reduce((s, i) => s + (num(i.amount)), 0);
   const fromAdvance = useAdvance ? Math.min(total, available) : 0;
+  const afterAdvance = total - fromAdvance;
+  const paidNow = num(paid.amount);
+  const stillDue = afterAdvance - paidNow;
+  const setPaidField = (k) => (e) => setPaid((p) => ({ ...p, [k]: e.target.value }));
 
-  const { submit, busy, error } = useSubmit(() => {
+  const { submit, busy, fields, error } = useSubmit(() => {
+    if (paidNow > afterAdvance) throw new Error(`Paid now is more than the amount due (${rupees(afterAdvance)}).`);
     const clean = items.filter((i) => i.description.trim() && num(i.amount) > 0).map((i) => ({ description: i.description.trim(), amount: num(i.amount) }));
     if (!clean.length) throw new Error("Add at least one line with a description and amount.");
-    return api.post("/invoices/", { patient: patientId, items: clean, ...(available > 0 ? { apply_advance: useAdvance } : {}) });
+    return api.post("/invoices/", {
+      patient: patientId, items: clean,
+      ...(available > 0 ? { apply_advance: useAdvance } : {}),
+      ...(paidNow > 0 ? { paid_now: paidNow, paid_method: paid.method, paid_reference: paid.reference.trim() } : {}),
+    });
   }, (inv) => {
-    const used = num(inv?.advance_applied);
-    toast(used > 0 ? `Invoice created. ${rupees(used)} paid from advance.` : "Invoice created");
+    toast(num(inv?.due) > 0 ? `Invoice created. ${rupees(inv.due)} is due.` : "Invoice created and fully paid.");
     onSaved();
   });
 
@@ -236,7 +256,27 @@ function InvoiceModal({ patientId, available, onClose, onSaved }) {
           </div>
         )}
 
-        {error && <div className="note error" role="alert">{error}</div>}
+        <div className="stack">
+          <div className="grid2">
+            <Field label="Paid now (₹)" hint="Money the patient has already paid for this invoice" error={fields.paid_now}>
+              <input className="input" type="number" min="0" inputMode="decimal" value={paid.amount} onChange={setPaidField("amount")} />
+            </Field>
+            <Field label="Method"><select className="input" value={paid.method} onChange={setPaidField("method")}>{methodOptions}</select></Field>
+          </div>
+          {paid.method === "upi" && paidNow > 0 && <Field label="UTR / reference"><input className="input" value={paid.reference} onChange={setPaidField("reference")} /></Field>}
+          {afterAdvance > 0 && <button type="button" className="link" onClick={() => setPaid((p) => ({ ...p, amount: String(afterAdvance) }))}>Paid in full ({rupees(afterAdvance)})</button>}
+        </div>
+
+        {total > 0 && (
+          <div className="sum-lines money" aria-label="Summary">
+            <div className="row spread"><span>Total</span><span>{rupees(total)}</span></div>
+            {fromAdvance > 0 && <div className="row spread"><span>Advance used</span><span>− {rupees(fromAdvance)}</span></div>}
+            {paidNow > 0 && <div className="row spread"><span>Paid now</span><span>− {rupees(paidNow)}</span></div>}
+            <div className={`row spread total ${stillDue > 0 ? "text-due" : ""}`}><span>{stillDue > 0 ? "Still due" : "Fully paid"}</span><span>{rupees(Math.max(stillDue, 0))}</span></div>
+          </div>
+        )}
+
+        {error && !fields.paid_now && <div className="note error" role="alert">{error}</div>}
         <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>Create invoice</button></div>
       </form>
     </Modal>
@@ -280,7 +320,7 @@ function PaymentModal({ invoice, onClose, onSaved }) {
       <form onSubmit={submit} className="form" noValidate>
         <p className="muted">Amount due: <b>{rupees(invoice.due)}</b></p>
         <div className="grid2">
-          <Field label="Amount (₹)" error={fields.amount}><input className="input" type="number" min="0" value={v.amount} onChange={set("amount")} autoFocus /></Field>
+          <Field label="Amount (₹)" error={fields.amount} hint={`Still due after this: ${rupees(Math.max(num(invoice.due) - num(v.amount), 0))}`}><input className="input" type="number" min="0" value={v.amount} onChange={set("amount")} autoFocus /></Field>
           <Field label="Method"><select className="input" value={v.method} onChange={set("method")}>{methodOptions}</select></Field>
         </div>
         {v.method === "upi" && <Field label="UTR / reference"><input className="input" value={v.reference} onChange={set("reference")} /></Field>}

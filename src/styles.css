@@ -137,6 +137,13 @@ textarea.input { resize: vertical; }
 
 /* billing: advance payments */
 .money { font-variant-numeric: tabular-nums; }
+.stats.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 560px) { .stats.four { grid-template-columns: repeat(2, 1fr); } }
+.meter { height: 8px; border-radius: 999px; background: #e3ecf0; overflow: hidden; }
+.meter > span { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
+.text-due { color: var(--amber-ink); }
+.sum-lines { display: grid; gap: 4px; background: #f4f8fa; border-radius: 8px; padding: 10px 12px; font-size: 0.95rem; }
+.sum-lines .total { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 2px; font-weight: 800; font-size: 1.05rem; }
 .stat.credit { border-top-color: var(--blue); }
 .stat.credit b { color: var(--blue); }
 .pay-lines { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 2px; }

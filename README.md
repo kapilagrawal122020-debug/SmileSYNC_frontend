@@ -46,7 +46,7 @@ VITE_BACKEND=http://localhost:8000 npm run dev
 | Screen | Doctor | Consultant | Assistant | Patient |
 | --- | :-: | :-: | :-: | :-: |
 | Today (appointments, chairs, summary tiles) | yes | yes | yes | My health |
-| Patients (register, records, treatments, images, billing) | yes | yes | yes | – |
+| Patients (register, records, treatments, images, billing with advance payments) | yes | yes | yes | – |
 | Private notes | yes | – | – | – |
 | Appointments | yes | yes | yes | on My health |
 | Hygiene (4 photos after each patient, daily rounds, review) | review | – | upload | – |
@@ -75,6 +75,15 @@ POST /api/auth/register/
 
 Demo mode implements this so you can try the whole flow. Against the current backend the form
 shows "Sign-up is not available on this server yet". Everything else uses routes that already exist.
+
+## Billing and advance payments
+
+The patient's Billing tab shows billed, paid, due and the advance available. "Take advance" records money paid before
+billing (with the date it was received, so an earlier payment can be entered). A new invoice offers to use the advance,
+a due invoice has a "Use advance" button, and "Paid now" on a new invoice records money the patient already paid (for example
+Braces 34000, paid 20000, due 14000). Every invoice shows Total, Paid and Due with a progress bar. The doctor can refund what is left or delete a wrong entry. This needs the
+backend routes under `/api/advances/`, `/api/invoices/{id}/apply-advance/` and `/api/patients/{id}/billing/`.
+Deploy and migrate the backend first. Demo mode implements the same rules.
 
 ## Project layout
 
