@@ -2,6 +2,7 @@
 // It follows the same routes, field names and rules as the Django API, so switching
 // demo mode off should need no change in the pages.
 import { ApiError } from "./errors";
+import { MOCK_LISTS } from "./mockLists";
 
 const KEY = "ss_mock_db_v1";
 const OTP_CODE = "123456";
@@ -225,7 +226,12 @@ function applyAdvance(db, inv, amount) {
 function out(db, me, key, r) {
   const { password, ...rec } = r; // eslint-disable-line no-unused-vars
   if (key === "patients" && me.role !== "doctor") delete rec.private_notes;
-  if (key === "visits") rec.patient_name = db.patients.find((p) => p.id === r.patient)?.name || "";
+  if (key === "visits") {
+    rec.patient_name = db.patients.find((p) => p.id === r.patient)?.name || "";
+    rec.duration_minutes = visitMinutes(r);
+    rec.end_at = visitEnd(r);
+    rec.cancel_reason ||= "";
+  }
   if (key === "invoices") {
     Object.assign(rec, totals(db, r));
     const pays = db.payments.filter((p) => p.invoice === r.id);
@@ -261,11 +267,89 @@ const ROUTES = {
 const AFTER_AREAS = ["spit_basin", "chair_seat", "suction_tips", "rotors"];
 const DAILY_AREAS = ["waiting", "reception", "operatories", "washroom", "pantry", "storage"];
 
+
+// ---- lists, medical history, visit length and tooth numbers (same rules as the backend) ----
+
+const ADULT_TEETH = [1, 2, 3, 4].flatMap((q) => [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `${q}${n}`));
+const CHILD_TEETH = [5, 6, 7, 8].flatMap((q) => [1, 2, 3, 4, 5].map((n) => `${q}${n}`));
+const FDI = new Set([...ADULT_TEETH, ...CHILD_TEETH]);
+
+function cleanTeeth(value, field = "tooth") {
+  const tokens = String(value || "").split(/[,\s;/]+/).filter(Boolean);
+  const wrong = tokens.filter((t) => !FDI.has(t));
+  if (wrong.length) throw bad(field, `${wrong.join(", ")}: not a valid tooth number. Use FDI numbers: 11 to 18, 21 to 28, 31 to 38, 41 to 48 (children 51 to 55, 61 to 65, 71 to 75, 81 to 85). Separate several teeth with commas.`);
+  return [...new Set(tokens)].join(", ");
+}
+
+const ACTIVE_VISIT = ["booked", "confirmed", "reschedule", "in_progress"];
+const visitMinutes = (v) => Number(v.duration_minutes || 30);
+const visitEnd = (v) => new Date(new Date(v.scheduled_at).getTime() + visitMinutes(v) * 60000).toISOString();
+
+// A chair or a doctor cannot be in two active visits at once. Touching end to start is fine.
+function noOverlap(db, v, selfId) {
+  if (!ACTIVE_VISIT.includes(v.status || "booked") || !v.scheduled_at) return;
+  const start = new Date(v.scheduled_at).getTime();
+  const end = start + visitMinutes(v) * 60000;
+  for (const o of db.visits) {
+    if (o.id === selfId || !ACTIVE_VISIT.includes(o.status)) continue;
+    const sameChair = v.chair && o.chair === v.chair;
+    const sameDoctor = v.doctor && o.doctor === v.doctor;
+    if (!sameChair && !sameDoctor) continue;
+    const oStart = new Date(o.scheduled_at).getTime();
+    const oEnd = oStart + visitMinutes(o) * 60000;
+    if (oStart < end && oEnd > start) {
+      const t = (ms) => new Date(ms).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }).toUpperCase();
+      const field = sameChair ? "chair" : "doctor";
+      throw bad(field, `Already booked ${t(oStart)} to ${t(oEnd)} for ${db.patients.find((p) => p.id === o.patient)?.name || "another patient"}. Choose another time or ${field}.`);
+    }
+  }
+}
+
+function checkVisit(db, v, selfId) {
+  const m = visitMinutes(v);
+  if (m < 5 || m > 480) throw bad("duration_minutes", "Use a length between 5 and 480 minutes.");
+  if (v.cancel_reason && !MOCK_LISTS["cancellation-reasons"].some((x) => x.code === v.cancel_reason)) throw bad("cancel_reason", "Choose one of the cancellation reasons.");
+  noOverlap(db, v, selfId);
+}
+
+const HISTORY_PARTS = { conditions: "medical-conditions", allergies: "allergies", medicines: "flagged-medications", habits: "habits" };
+const ALERT_CONDITIONS = ["bleeding-disorder", "valve-disease", "pacemaker", "pregnancy", "diabetes", "hypertension", "heart-disease", "epilepsy", "asthma", "cancer-chemo", "immunosuppressed", "joint-replacement"];
+
+function historyOf(db, patientId) {
+  const rows = db.history.filter((h) => h.patient === patientId);
+  const row = rows[rows.length - 1];
+  if (!row) return { exists: false, id: null, conditions: [], allergies: [], medicines: [], habits: [], notes: "", reviewed_by_name: "", reviewed_at: null, versions: 0, alerts: [] };
+  const name = (part, code) => MOCK_LISTS[HISTORY_PARTS[part]].find((v) => v.code === code)?.label || code;
+  return {
+    exists: true, id: row.id, conditions: row.conditions, allergies: row.allergies, medicines: row.medicines, habits: row.habits, notes: row.notes,
+    reviewed_by_name: row.reviewed_by_name, reviewed_at: row.created_at, versions: rows.length,
+    alerts: [
+      ...row.allergies.map((c) => ({ kind: "allergy", code: c, label: name("allergies", c) })),
+      ...row.medicines.map((c) => ({ kind: "medicine", code: c, label: name("medicines", c) })),
+      ...row.conditions.filter((c) => ALERT_CONDITIONS.includes(c)).map((c) => ({ kind: "condition", code: c, label: name("conditions", c) })),
+    ],
+  };
+}
+
+function saveHistory(db, me, patient, data) {
+  const row = { id: db.seq++, patient: patient.id, notes: data.notes || "", reviewed_by_name: me.name || me.phone, created_at: nowIso() };
+  for (const [part, key] of Object.entries(HISTORY_PARTS)) {
+    const codes = data[part] ?? [];
+    if (!Array.isArray(codes)) throw bad(part, "Send a list of codes.");
+    const unknown = codes.filter((c) => !MOCK_LISTS[key].some((v) => v.code === c));
+    if (unknown.length) throw bad(part, `Not in the list: ${unknown.join(", ")}.`);
+    row[part] = [...new Set(codes)];
+  }
+  db.history.push(row);
+  return historyOf(db, patient.id);
+}
+
 // ---- entry point ---------------------------------------------------------------------
 
 export async function mockRequest(method, path, { params = {}, body, token }) {
   await delay(90);
   const db = load();
+  db.history ||= [];
   const seg = path.split("/").filter(Boolean);
   const result = await route(db, method, seg, params, body, token);
   save(db);
@@ -279,6 +363,8 @@ async function route(db, method, seg, params, body, token) {
   if (!me) throw new ApiError(401, { detail: "Invalid token." });
 
   if (seg[0] === "dashboard") return dashboard(db, me);
+  if (seg[0] === "lists") return MOCK_LISTS;
+  if (seg[0] === "platform") throw forbidden(); // the admin dashboard needs the real backend
 
   const two = `${seg[0]}/${seg[1]}`;
   const prefix = ROUTES[two] ? 2 : 1;
@@ -452,16 +538,17 @@ async function create(db, me, key, body) {
     case "visits":
       if (!data.patient) throw bad("patient", "This field is required.");
       if (!data.scheduled_at) throw bad("scheduled_at", "This field is required.");
-      Object.assign(rec, { status: data.status || "booked", notes: data.notes || "", doctor: data.doctor ?? null, chair: data.chair ?? null });
+      Object.assign(rec, { status: data.status || "booked", notes: data.notes || "", doctor: data.doctor ?? null, chair: data.chair ?? null, duration_minutes: Number(data.duration_minutes) || 30, cancel_reason: data.cancel_reason || "" });
+      checkVisit(db, rec, null);
       break;
     case "treatments":
       if (!data.patient) throw bad("patient", "This field is required.");
       if (!data.procedure?.trim()) throw bad("procedure", "This field is required.");
-      Object.assign(rec, { doctor: me.id, units: data.units || 1, cost: data.cost || 0, notes: data.notes || "", tooth: data.tooth || "", status: "planned", done_at: null, stock_deducted: false, created_at: nowIso() });
+      Object.assign(rec, { doctor: me.id, units: data.units || 1, cost: data.cost || 0, notes: data.notes || "", tooth: cleanTeeth(data.tooth), status: "planned", done_at: null, stock_deducted: false, created_at: nowIso() });
       break;
     case "images":
       if (!files.file) throw bad("file", "No file was submitted.");
-      Object.assign(rec, { file_url: await fileToData(files.file), kind: data.kind || "intraoral", tooth: data.tooth || "", stage: data.stage || "", taken_at: data.taken_at || nowIso(), visit: data.visit ?? null });
+      Object.assign(rec, { file_url: await fileToData(files.file), kind: data.kind || "intraoral", tooth: cleanTeeth(data.tooth), stage: data.stage || "", taken_at: data.taken_at || nowIso(), visit: data.visit ?? null });
       delete rec.file;
       break;
     case "invoices":
@@ -571,6 +658,8 @@ function update(db, me, key, rec, body) {
     if (chair?.status === "locked") throw bad("chair", "Chair is locked until the 4 hygiene photos are submitted.");
   }
   if (key === "users" && !data.password) delete data.password;
+  if (key === "treatments" && "tooth" in data) data.tooth = cleanTeeth(data.tooth);
+  if (key === "visits") checkVisit(db, { ...rec, ...data }, rec.id);
   Object.assign(rec, data);
   if (key === "visits") syncChair(db, rec);
   return out(db, me, key, rec);
@@ -629,6 +718,15 @@ function listAction(db, me, key, name, method, params, body) {
 function recordAction(db, me, key, rec, name, method, body) {
   const { data } = parse(body);
 
+  if (key === "patients" && name === "history") return method === "GET" ? historyOf(db, rec.id) : saveHistory(db, me, rec, data);
+  if (key === "visits" && name === "reschedule" && method === "POST") {
+    if (["in_progress", "completed", "cancelled"].includes(rec.status)) throw bad("status", "A visit that is in progress, completed or cancelled cannot be moved. Book a new one.");
+    if (!data.scheduled_at) throw bad("scheduled_at", "This field is required.");
+    const next = { ...rec, scheduled_at: data.scheduled_at, status: "booked", duration_minutes: Number(data.duration_minutes) || rec.duration_minutes };
+    checkVisit(db, next, rec.id);
+    Object.assign(rec, next);
+    return out(db, me, key, rec);
+  }
   if (key === "patients" && name === "billing" && method === "GET") {
     const invoices = db.invoices.filter((i) => i.patient === rec.id);
     const advances = db.advances.filter((a) => a.patient === rec.id);

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, setUnauthorizedHandler, storage } from "../api/client";
+import { clearLists } from "../lists/useLists";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -20,12 +21,14 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => (storage.get("ss_token") ? readUser() : null));
 
   const finish = useCallback(({ token, user: u }) => {
+    clearLists();
     storage.set("ss_token", token);
     storage.set("ss_user", JSON.stringify(u));
     setUser(u);
   }, []);
 
   const clear = useCallback(() => {
+    clearLists();
     storage.del("ss_token");
     storage.del("ss_user");
     setUser(null);

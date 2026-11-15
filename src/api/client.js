@@ -89,6 +89,18 @@ export async function fetchFileUrl(url) {
   return URL.createObjectURL(await res.blob());
 }
 
+// Download a file from an authenticated endpoint (the token cannot go in a plain link).
+export async function downloadFile(path, filename, params) {
+  const qs = new URLSearchParams(clean(params)).toString();
+  const res = await fetch(`${BASE}/api${path}${qs ? `?${qs}` : ""}`, { headers: { Authorization: `Token ${getToken()}` } });
+  if (!res.ok) throw new ApiError(res.status, null);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 // ---- small formatting helpers used across pages ----
 export const rupees = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 export const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "");

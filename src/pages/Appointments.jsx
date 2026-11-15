@@ -38,7 +38,7 @@ export default function Appointments() {
 function BookModal({ presetPatient, defaultDate, onClose, onSaved }) {
   const toast = useToast();
   const refs = useLoad(() => Promise.all([api.list("/patients/"), api.list("/users/"), api.list("/chairs/")]), []);
-  const [v, setV] = useState({ patient: presetPatient || "", doctor: "", chair: "", when: `${defaultDate}T10:00`, notes: "" });
+  const [v, setV] = useState({ patient: presetPatient || "", doctor: "", chair: "", when: `${defaultDate}T10:00`, notes: "", duration: "30" });
   const set = (k) => (e) => setV((s) => ({ ...s, [k]: e.target.value }));
 
   const { submit, busy, fields, error } = useSubmit(() => {
@@ -46,7 +46,7 @@ function BookModal({ presetPatient, defaultDate, onClose, onSaved }) {
     if (!v.when) throw new Error("Choose a date and time.");
     return api.post("/visits/", {
       patient: Number(v.patient), doctor: v.doctor ? Number(v.doctor) : null, chair: v.chair ? Number(v.chair) : null,
-      scheduled_at: new Date(v.when).toISOString(), notes: v.notes,
+      scheduled_at: new Date(v.when).toISOString(), duration_minutes: Number(v.duration) || 30, notes: v.notes,
     });
   }, (visit) => { toast("Visit booked"); onSaved(visit); });
 
@@ -64,7 +64,14 @@ function BookModal({ presetPatient, defaultDate, onClose, onSaved }) {
                 {patients.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.phone}</option>)}
               </select>
             </Field>
-            <Field label="Date and time" error={fields.scheduled_at}><input className="input" type="datetime-local" value={v.when} onChange={set("when")} /></Field>
+            <div className="grid2">
+              <Field label="Date and time" error={fields.scheduled_at}><input className="input" type="datetime-local" value={v.when} onChange={set("when")} /></Field>
+              <Field label="Length" error={fields.duration_minutes}>
+                <select className="input" value={v.duration} onChange={set("duration")}>
+                  {[15, 30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m} minutes</option>)}
+                </select>
+              </Field>
+            </div>
             <div className="grid2">
               <Field label="Doctor" error={fields.doctor}>
                 <select className="input" value={v.doctor} onChange={set("doctor")}><option value="">Any</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
@@ -74,7 +81,7 @@ function BookModal({ presetPatient, defaultDate, onClose, onSaved }) {
               </Field>
             </div>
             <Field label="Notes" error={fields.notes}><input className="input" value={v.notes} onChange={set("notes")} /></Field>
-            {error && !Object.keys(fields).length && <div className="note error">{error}</div>}
+            {error && !fields.patient && !fields.scheduled_at && !fields.duration_minutes && <div className="note error">{error}</div>}
             <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? "Booking…" : "Book visit"}</button></div>
           </form>
         )}

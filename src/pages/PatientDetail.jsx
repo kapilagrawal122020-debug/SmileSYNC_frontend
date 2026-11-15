@@ -8,6 +8,7 @@ import {
 } from "../components/ui";
 import VisitList from "../components/VisitList";
 import Billing from "./Billing";
+import { HistoryBanner, HistoryCard, HistoryModal } from "./MedicalHistory";
 import { PatientForm } from "./Patients";
 
 const TABS = ["Overview", "Treatments", "Images", "Billing", "Visits"];
@@ -16,6 +17,8 @@ export default function PatientDetail() {
   const { id } = useParams();
   const [tab, setTab] = useState("Overview");
   const patient = useLoad(() => api.get(`/patients/${id}/`), [id]);
+  const history = useLoad(() => api.get(`/patients/${id}/history/`).catch(() => null), [id]);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   if (patient.loading && !patient.data) return <Page title="Patient"><Loading /></Page>;
   if (patient.error) return <Page title="Patient"><ErrorNote message={patient.error} onRetry={patient.reload} /></Page>;
@@ -27,26 +30,28 @@ export default function PatientDetail() {
       subtitle={`${p.phone}${p.locality ? ` · ${p.locality}` : ""}`}
       actions={<Link className="btn ghost" to="/patients">← All patients</Link>}
     >
+      <HistoryBanner history={history.data} onOpen={() => setHistoryOpen(true)} />
       <div className="tabs" role="tablist">
         {TABS.map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`tab ${tab === t ? "on" : ""}`} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
-      {tab === "Overview" && <Overview p={p} reload={patient.reload} />}
+      {tab === "Overview" && <Overview p={p} reload={patient.reload} history={history.data} onHistory={() => setHistoryOpen(true)} />}
       {tab === "Treatments" && <Treatments patientId={p.id} />}
       {tab === "Images" && <Images patientId={p.id} />}
       {tab === "Billing" && <Billing patientId={p.id} />}
       {tab === "Visits" && <PatientVisits patientId={p.id} />}
+      {historyOpen && <HistoryModal patientId={p.id} history={history.data} onClose={() => setHistoryOpen(false)} onSaved={() => { setHistoryOpen(false); history.reload(); }} />}
     </Page>
   );
 }
 
 // ---- Overview ----------------------------------------------------------------------------
-function Overview({ p, reload }) {
+function Overview({ p, reload, history, onHistory }) {
   const { user } = useAuth();
   const [editing, setEditing] = useState(false);
   const rows = [
-    ["Chief complaint", p.chief_complaint], ["Medical history", p.medical_history], ["Dental history", p.dental_history],
+    ["Chief complaint", p.chief_complaint], ["Medical notes", p.medical_history], ["Dental history", p.dental_history],
     ["Language", p.language], ["Registered", fmtDate(p.created_at)],
   ];
   return (
@@ -63,6 +68,7 @@ function Overview({ p, reload }) {
           </dl>
         </div>
       </Card>
+      <HistoryCard history={history} canEdit={user.role !== "patient"} onEdit={onHistory} />
       {user.role === "doctor" && (
         <Card title="Private notes" className="private">
           <p>{p.private_notes || <span className="muted">No private notes. Only the doctor can see this.</span>}</p>
@@ -135,7 +141,7 @@ function TreatmentModal({ patientId, onClose, onSaved }) {
           <datalist id="procs">{names.map((n) => <option key={n} value={n} />)}</datalist>
         </Field>
         <div className="grid3">
-          <Field label="Tooth" hint="One tooth or a list, e.g. 26 or 12, 14, 16" error={fields.tooth}><input className="input" maxLength={100} value={v.tooth} onChange={set("tooth")} /></Field>
+          <Field label="Tooth" hint="FDI number: 11 to 48 (adults) or 51 to 85 (children). A list is fine, e.g. 12, 14, 16" error={fields.tooth}><input className="input" maxLength={100} value={v.tooth} onChange={set("tooth")} /></Field>
           <Field label="Units" error={fields.units} hint="Fillings or teeth"><input className="input" type="number" min="1" value={v.units} onChange={set("units")} /></Field>
           <Field label="Cost (₹)" error={fields.cost}><input className="input" type="number" min="0" value={v.cost} onChange={set("cost")} /></Field>
         </div>
@@ -192,10 +198,10 @@ function ImageModal({ patientId, onClose, onSaved }) {
         <Field label="File" hint="jpg, png, webp, dcm or pdf up to 15 MB" error={fields.file}><FileInput accept="image/*,.dcm,.pdf" capture="environment" onChange={setFile} /></Field>
         <div className="grid3">
           <Field label="Type"><select className="input" value={v.kind} onChange={set("kind")}><option value="intraoral">Intraoral photo</option><option value="xray">X-ray (RVG)</option><option value="scan">Scan</option><option value="other">Other</option></select></Field>
-          <Field label="Tooth"><input className="input" placeholder="e.g. 26" value={v.tooth} onChange={set("tooth")} /></Field>
+          <Field label="Tooth" hint="FDI number, e.g. 26" error={fields.tooth}><input className="input" placeholder="e.g. 26" value={v.tooth} onChange={set("tooth")} /></Field>
           <Field label="Stage"><select className="input" value={v.stage} onChange={set("stage")}><option value="">–</option><option value="before">Before</option><option value="after">After</option></select></Field>
         </div>
-        {error && <div className="note error">{error}</div>}
+        {error && !fields.tooth && <div className="note error">{error}</div>}
         <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? "Uploading…" : "Upload"}</button></div>
       </form>
     </Modal>
