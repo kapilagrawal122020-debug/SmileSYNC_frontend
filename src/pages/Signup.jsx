@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { Field, useSubmit } from "../components/ui";
+import { Field, useLoad, useSubmit } from "../components/ui";
 import { AuthShell, RolePicker, cleanPhone } from "./AuthShell";
 
 const empty = {
   name: "", phone: "", password: "", confirm: "",
-  clinic_name: "", city: "", clinic_code: "",
+  clinic: "", clinic_filter: "", clinic_code: "",
   registration_number: "", designation: "", speciality: "",
   consent_data: false, consent_whatsapp: false,
 };
@@ -20,6 +21,7 @@ export default function Signup() {
   const [devCode, setDevCode] = useState("");
   const [localError, setLocalError] = useState("");
 
+  const clinics = useLoad(() => api.get("/auth/clinics/"), []);
   const set = (k) => (e) => setV((s) => ({ ...s, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
   const isPatient = role === "patient";
   const isDoctor = role === "doctor";
@@ -35,12 +37,16 @@ export default function Signup() {
     }
     const payload = { role, name: v.name.trim(), phone: cleanPhone(v.phone) };
     if (!isPatient) payload.password = v.password;
-    if (isDoctor) Object.assign(payload, { clinic_name: v.clinic_name.trim(), city: v.city.trim() });
+    if (isDoctor) {
+      if (!v.clinic) throw new Error("Choose your clinic from the list.");
+      payload.clinic = Number(v.clinic);
+    }
     else payload.clinic_code = v.clinic_code.trim();
     if (hasLicence) Object.assign(payload, { registration_number: v.registration_number.trim(), designation: v.designation.trim(), speciality: v.speciality.trim() });
     if (isPatient) Object.assign(payload, { consent_data: v.consent_data, consent_whatsapp: v.consent_whatsapp });
 
     const res = await register(payload);
+    if (res?.pending) { setStep("pending"); return res; }
     if (isPatient) {
       const otp = await requestOtp(payload.phone);
       setDevCode(otp?.dev_otp || res?.dev_otp || "");
@@ -50,6 +56,17 @@ export default function Signup() {
   });
 
   const verify = useSubmit(() => verifyOtp(cleanPhone(v.phone), code));
+
+  if (step === "pending") {
+    return (
+      <AuthShell title="Request received" subtitle="We will check your clinic and switch your account on.">
+        <div className="note info" role="status">
+          Your account is waiting for approval. After we verify your clinic with its contact person, you can log in with {cleanPhone(v.phone)} and the password you just chose.
+        </div>
+        <Link className="btn primary block" to="/login">Go to log in</Link>
+      </AuthShell>
+    );
+  }
 
   if (step === "code") {
     return (
@@ -82,14 +99,7 @@ export default function Signup() {
         </Field>
 
         {isDoctor ? (
-          <div className="grid2">
-            <Field label="Clinic name" error={err("clinic_name")}>
-              <input className="input" value={v.clinic_name} onChange={set("clinic_name")} required />
-            </Field>
-            <Field label="City" error={err("city")}>
-              <input className="input" value={v.city} onChange={set("city")} />
-            </Field>
-          </div>
+          <ClinicPicker clinics={clinics} v={v} set={set} error={err("clinic")} />
         ) : (
           <Field label="Clinic code" hint="Ask your clinic for this code. The doctor can find it under Clinic." error={err("clinic_code")}>
             <input className="input" value={v.clinic_code} onChange={set("clinic_code")} required />
@@ -145,5 +155,26 @@ export default function Signup() {
 
       <p className="switch">Already registered? <Link to="/login">Log in</Link></p>
     </AuthShell>
+  );
+}
+
+// Doctors can only join a clinic the platform team has added, so there is nothing to type, only to choose.
+function ClinicPicker({ clinics, v, set, error }) {
+  const all = clinics.data || [];
+  const q = v.clinic_filter.trim().toLowerCase();
+  const shown = q ? all.filter((c) => `${c.name} ${c.city}`.toLowerCase().includes(q) || String(c.id) === v.clinic) : all;
+  return (
+    <>
+      {all.length > 8 && (
+        <Field label="Find your clinic"><input className="input" placeholder="Type a clinic name or city" value={v.clinic_filter} onChange={set("clinic_filter")} /></Field>
+      )}
+      <Field label="Your clinic" error={error} hint={!clinics.loading && !clinics.error && !all.length ? "No clinic is listed yet." : "Not listed? Ask the SmileSYNC team to add your clinic first."}>
+        <select className="input" value={v.clinic} onChange={set("clinic")} required disabled={clinics.loading}>
+          <option value="">{clinics.loading ? "Loading clinics…" : "Choose your clinic…"}</option>
+          {shown.map((c) => <option key={c.id} value={c.id}>{c.name}{c.city ? ` · ${c.city}` : ""}</option>)}
+        </select>
+      </Field>
+      {clinics.error && <div className="note error" role="alert">{clinics.error}</div>}
+    </>
   );
 }

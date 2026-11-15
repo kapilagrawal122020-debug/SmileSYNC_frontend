@@ -63,7 +63,7 @@ function ClinicForm({ clinic, onClose, onSaved }) {
   return (
     <Modal title="Edit clinic" onClose={onClose}>
       <form onSubmit={submit} className="form" noValidate>
-        <Field label="Clinic name" error={fields.name}><input className="input" value={v.name} onChange={set("name")} /></Field>
+        <Field label="Clinic name" hint="Set by SmileSYNC. Contact us to change it." error={fields.name}><input className="input" value={v.name} readOnly disabled /></Field>
         <Field label="Address" error={fields.address}><input className="input" value={v.address} onChange={set("address")} /></Field>
         <div className="grid2">
           <Field label="City" error={fields.city}><input className="input" value={v.city} onChange={set("city")} /></Field>

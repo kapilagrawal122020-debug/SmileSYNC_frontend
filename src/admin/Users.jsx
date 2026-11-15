@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, fmtDateTime } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Async, Badge, Card, Field, Modal, Page, label, useLoad, useSubmit, useToast } from "../components/ui";
@@ -8,15 +9,25 @@ const ROLE_OPTIONS = ["doctor", "consultant", "assistant", "super_admin"];
 export default function Users() {
   const { user: me } = useAuth();
   const toast = useToast();
-  const [f, setF] = useState({ role: "", active: "", search: "" });
+  const [params] = useSearchParams();
+  const [f, setF] = useState({ role: "", status: params.get("status") || "", search: "" });
   const [modal, setModal] = useState(null); // { type: "password", user } | { type: "admin" }
-  const list = useLoad(() => api.list("/platform/users/", f), [f.role, f.active, f.search]);
+  const query = { role: f.role, search: f.search, ...(f.status === "pending" ? { pending: "true" } : f.status ? { active: f.status } : {}) };
+  const list = useLoad(() => api.list("/platform/users/", query), [f.role, f.status, f.search]);
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
 
   const toggle = async (u) => {
     try {
       await api.patch(`/platform/users/${u.id}/`, { is_active: !u.is_active });
       toast(u.is_active ? `${u.name || u.phone} turned off and signed out` : `${u.name || u.phone} turned on`);
+      list.reload();
+    } catch (e) { toast(e.message, "bad"); }
+  };
+
+  const approve = async (u) => {
+    try {
+      await api.post(`/platform/users/${u.id}/approve/`);
+      toast(`${u.name || u.phone} approved. They can log in now.`);
       list.reload();
     } catch (e) { toast(e.message, "bad"); }
   };
@@ -29,28 +40,29 @@ export default function Users() {
         <select className="input date" value={f.role} onChange={set("role")} aria-label="Filter by role">
           <option value="">All roles</option>{ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r === "super_admin" ? "Platform admin" : label(r)}</option>)}
         </select>
-        <select className="input date" value={f.active} onChange={set("active")} aria-label="Filter by status">
-          <option value="">On and off</option><option value="true">On</option><option value="false">Turned off</option>
+        <select className="input date" value={f.status} onChange={set("status")} aria-label="Filter by status">
+          <option value="">All accounts</option><option value="pending">Waiting for approval</option><option value="true">On</option><option value="false">Turned off</option>
         </select>
       </div>
       <Card>
-        <Async state={list} empty="No account matches.">
+        <Async state={list} empty={f.status === "pending" ? "Nobody is waiting for approval." : "No account matches."}>
           {(rows) => (
             <div className="table-wrap">
               <table className="table">
                 <thead><tr><th>Person</th><th>Role</th><th>Clinic</th><th>Status</th><th>Last sign-in</th><th /></tr></thead>
                 <tbody>
                   {rows.map((u) => (
-                    <tr key={u.id} className={u.is_active ? "" : "row-off"}>
+                    <tr key={u.id} className={u.is_active || u.signup_pending ? "" : "row-off"}>
                       <td><b>{u.name || "No name"}</b><div className="muted small mono">{u.phone}</div></td>
                       <td>{u.is_super_admin ? <Badge tone="amber">Platform admin</Badge> : <Badge tone="teal">{label(u.role)}</Badge>}</td>
                       <td>{u.clinic_name || "–"}</td>
-                      <td>{u.is_active ? <Badge tone="green">On</Badge> : <Badge tone="red">Turned off</Badge>}</td>
+                      <td>{u.signup_pending ? <Badge tone="amber">Waiting for approval</Badge> : u.is_active ? <Badge tone="green">On</Badge> : <Badge tone="red">Turned off</Badge>}</td>
                       <td className="small">{u.last_login ? fmtDateTime(u.last_login) : "Never"}</td>
                       <td>
                         <div className="row gap">
+                          {u.signup_pending && <button className="btn small primary" onClick={() => approve(u)}>Approve</button>}
                           <button className="btn small" onClick={() => setModal({ type: "password", user: u })}>Set password</button>
-                          <button className="btn small ghost" disabled={u.id === me.id} title={u.id === me.id ? "You cannot turn off your own account" : ""} onClick={() => toggle(u)}>{u.is_active ? "Turn off" : "Turn on"}</button>
+                          {!u.signup_pending && <button className="btn small ghost" disabled={u.id === me.id} title={u.id === me.id ? "You cannot turn off your own account" : ""} onClick={() => toggle(u)}>{u.is_active ? "Turn off" : "Turn on"}</button>}
                         </div>
                       </td>
                     </tr>

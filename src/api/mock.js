@@ -29,8 +29,14 @@ function seed() {
     tokens: {},
     otps: {},
     clinics: [{
-      id: 1, name: "Smile Care Dental", address: "12 FC Road, Shivajinagar", city: "Pune", phone: "9800000000",
-      google_review_url: "https://g.page/r/smile-care-demo", website_url: "", social_url: "", code: "SMILE1",
+      id: 1, name: "Smile Care Dental", address: "12 FC Road, Shivajinagar", city: "Pune", state: "Maharashtra", phone: "9800000000",
+      google_review_url: "https://g.page/r/smile-care-demo", website_url: "", social_url: "", code: "SMILE1", is_active: true,
+    }, {
+      id: 2, name: "Bright Smiles Dental Clinic", address: "12 MI Road", city: "Jaipur", state: "Rajasthan", phone: "",
+      google_review_url: "", website_url: "", social_url: "", code: "SMILE2", is_active: true,
+    }, {
+      id: 3, name: "Lotus Dental Care", address: "4 Park Street", city: "Kolkata", state: "West Bengal", phone: "",
+      google_review_url: "", website_url: "", social_url: "", code: "SMILE3", is_active: true,
     }],
     users: [
       { id: 1, phone: "9000000001", password: "doctor123", name: "Dr. Demo", role: "doctor", designation: "BDS, MDS", speciality: "Conservative Dentistry", registration_number: "MDC-12345", is_active: true, clinic: 1 },
@@ -131,7 +137,7 @@ const FK = ["patient", "doctor", "chair", "visit", "invoice", "item"];
 const NUM = ["units", "cost", "amount", "quantity", "pack_size", "reorder_level", "rating", "packs", "counted", "paid_now"];
 const READONLY = {
   treatments: ["status", "done_at", "stock_deducted", "doctor"],
-  chairs: ["status"], items: ["quantity"], feedback: ["reply"], checks: ["status", "taken_by", "taken_at"],
+  clinics: ["name"], chairs: ["status"], items: ["quantity"], feedback: ["reply"], checks: ["status", "taken_by", "taken_at"],
 };
 
 function parse(body) {
@@ -388,6 +394,13 @@ function auth(db, method, a, b, body, token) {
     return issue(db, u);
   }
 
+  // The sign-up list: only the name and the place, never contact details (the real API does the same).
+  if (a === "clinics") {
+    const q = String(data?.search || "").toLowerCase();
+    return db.clinics.filter((c) => c.is_active !== false && `${c.name} ${c.city}`.toLowerCase().includes(q))
+      .map((c) => ({ id: c.id, name: c.name, city: c.city || "", state: c.state || "" }));
+  }
+
   if (a === "register") {
     const phone = digits(data.phone);
     if (!data.name?.trim()) throw bad("name", "This field is required.");
@@ -399,11 +412,10 @@ function auth(db, method, a, b, body, token) {
 
     let clinic;
     if (role === "doctor") {
-      if (!data.clinic_name?.trim()) throw bad("clinic_name", "Enter your clinic name.");
-      clinic = { id: db.seq++, name: data.clinic_name.trim(), address: "", city: data.city || "", phone: "", google_review_url: "", website_url: "", social_url: "", code: "" };
-      clinic.code = `SMILE${clinic.id}`;
-      db.clinics.push(clinic);
-      db.chairs.push({ id: db.seq++, clinic: clinic.id, name: "Chair 1", status: "ready" });
+      clinic = db.clinics.find((c) => c.id === Number(data.clinic) && c.is_active !== false);
+      if (!clinic) throw bad("clinic", "Choose your clinic from the list.");
+      // Demo only: the real server keeps the account switched off until the platform admin approves it.
+      if (!db.chairs.some((c) => c.clinic === clinic.id)) db.chairs.push({ id: db.seq++, clinic: clinic.id, name: "Chair 1", status: "ready" });
     } else {
       clinic = db.clinics.find((c) => c.code.toLowerCase() === String(data.clinic_code || "").trim().toLowerCase());
       if (!clinic) throw bad("clinic_code", "No clinic found with this code. Ask your clinic for it.");

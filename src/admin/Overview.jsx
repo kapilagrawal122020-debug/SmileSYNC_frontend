@@ -11,12 +11,20 @@ export default function Overview() {
           <>
             <div className="stats">
               <Stat label="Clinics" value={d.clinics} />
+              <Stat label="Waiting for approval" value={d.pending_signups} tone={d.pending_signups ? "warn" : ""} />
               <Stat label="Patients (count only)" value={d.patients} />
               <Stat label="Visits, last 30 days" value={d.visits_30_days} />
               <Stat label="Master lists" value={d.lists.count} />
               <Stat label="List values" value={d.lists.values} />
               <Stat label="Audit events, 7 days" value={d.audit_events_7_days} />
             </div>
+            {d.pending_signups > 0 && (
+              <div className="alert-banner amber" role="status">
+                <b>{d.pending_signups} {d.pending_signups === 1 ? "doctor is" : "doctors are"} waiting for approval.</b>
+                <span>Check the clinic with its point of contact, then approve the account.</span>
+                <Link className="link" to="/admin/users?status=pending">Review now</Link>
+              </div>
+            )}
             <div className="split">
               <Card title="Newest clinics" actions={<Link to="/admin/clinics">All clinics</Link>}>
                 {d.recent_clinics.length ? (
