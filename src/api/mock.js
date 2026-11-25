@@ -4,7 +4,7 @@
 import { ApiError } from "./errors";
 import { MOCK_LISTS } from "./mockLists";
 
-const KEY = "ss_mock_db_v1";
+const KEY = "ss_mock_db_v2";
 const OTP_CODE = "123456";
 const PHONE_RE = /^[6-9]\d{9}$/;
 
@@ -29,20 +29,25 @@ function seed() {
     tokens: {},
     otps: {},
     clinics: [{
-      id: 1, name: "Smile Care Dental", address: "12 FC Road, Shivajinagar", city: "Pune", state: "Maharashtra", phone: "9800000000",
-      google_review_url: "https://g.page/r/smile-care-demo", website_url: "", social_url: "", code: "SMILE1", is_active: true,
+      id: 1, slug: "smile-care-dental-pune", name: "Smile Care Dental", address: "12 FC Road, Shivajinagar", city: "Pune", state: "Maharashtra",
+      pincode: "411004", phone: "9800000000", email: "hello@smilecare.example", about: "Family dentistry in Shivajinagar: check-ups, fillings, root canals, braces and whitening. We keep every chair photo-verified clean.",
+      timings: "Mon to Sat, 10 am to 7 pm", location_url: "", google_review_url: "https://g.page/r/smile-care-demo", website_url: "", social_url: "", is_active: true,
     }, {
-      id: 2, name: "Bright Smiles Dental Clinic", address: "12 MI Road", city: "Jaipur", state: "Rajasthan", phone: "",
-      google_review_url: "", website_url: "", social_url: "", code: "SMILE2", is_active: true,
+      id: 2, slug: "bright-smiles-dental-clinic-jaipur", name: "Bright Smiles Dental Clinic", address: "12 MI Road", city: "Jaipur", state: "Rajasthan",
+      pincode: "302001", phone: "", email: "", about: "Painless dentistry for the whole family.", timings: "Daily, 9 am to 6 pm",
+      location_url: "", google_review_url: "", website_url: "", social_url: "", is_active: true,
     }, {
-      id: 3, name: "Lotus Dental Care", address: "4 Park Street", city: "Kolkata", state: "West Bengal", phone: "",
-      google_review_url: "", website_url: "", social_url: "", code: "SMILE3", is_active: true,
+      id: 3, slug: "lotus-dental-care-kolkata", name: "Lotus Dental Care", address: "4 Park Street", city: "Kolkata", state: "West Bengal",
+      pincode: "700016", phone: "", email: "", about: "", timings: "",
+      location_url: "", google_review_url: "", website_url: "", social_url: "", is_active: true,
     }],
     users: [
-      { id: 1, phone: "9000000001", password: "doctor123", name: "Dr. Demo", role: "doctor", designation: "BDS, MDS", speciality: "Conservative Dentistry", registration_number: "MDC-12345", is_active: true, clinic: 1 },
-      { id: 2, phone: "9000000002", password: "assist123", name: "Asha (assistant)", role: "assistant", designation: "", speciality: "", registration_number: "", is_active: true, clinic: 1 },
-      { id: 3, phone: "9000000003", password: "consult123", name: "Dr. Meera Iyer", role: "consultant", designation: "BDS, MDS", speciality: "Orthodontics", registration_number: "MDC-67890", is_active: true, clinic: 1 },
-      { id: 4, phone: "9111111111", password: "", name: "Ravi Kumar", role: "patient", designation: "", speciality: "", registration_number: "", is_active: true, clinic: null },
+      { id: 1, phone: "9000000001", password: "doctor123", name: "Dr. Demo", role: "clinic_admin", designation: "BDS, MDS", speciality: "Conservative Dentistry", registration_number: "MDC-12345", is_active: true, signup_pending: false, clinic: 1 },
+      { id: 2, phone: "9000000002", password: "assist123", name: "Asha (assistant)", role: "assistant", designation: "", speciality: "", registration_number: "", is_active: true, signup_pending: false, clinic: 1 },
+      { id: 3, phone: "9000000003", password: "consult123", name: "Dr. Meera Iyer", role: "consultant", designation: "BDS, MDS", speciality: "Orthodontics", registration_number: "MDC-67890", is_active: true, signup_pending: false, clinic: 1 },
+      { id: 4, phone: "9111111111", password: "", name: "Ravi Kumar", role: "patient", designation: "", speciality: "", registration_number: "", is_active: true, signup_pending: false, clinic: null },
+      { id: 5, phone: "9000000004", password: "doctor123", name: "Dr. Rao", role: "doctor", designation: "BDS", speciality: "Endodontics", registration_number: "MDC-24680", is_active: true, signup_pending: false, clinic: 1 },
+      { id: 6, phone: "9000000006", password: "doctor123", name: "Dr. Mehta", role: "clinic_admin", designation: "BDS", speciality: "General dentistry", registration_number: "", is_active: true, signup_pending: false, clinic: 2 },
     ],
     chairs: [
       { id: 1, clinic: 1, name: "Chair 1", status: "ready" },
@@ -137,7 +142,7 @@ const FK = ["patient", "doctor", "chair", "visit", "invoice", "item"];
 const NUM = ["units", "cost", "amount", "quantity", "pack_size", "reorder_level", "rating", "packs", "counted", "paid_now"];
 const READONLY = {
   treatments: ["status", "done_at", "stock_deducted", "doctor"],
-  clinics: ["name"], chairs: ["status"], items: ["quantity"], feedback: ["reply"], checks: ["status", "taken_by", "taken_at"],
+  clinics: ["name", "slug", "state", "pincode"], chairs: ["status"], items: ["quantity"], feedback: ["reply"], checks: ["status", "taken_by", "taken_at"],
 };
 
 function parse(body) {
@@ -173,7 +178,13 @@ const forbidden = () => new ApiError(403, { detail: "You do not have permission 
 
 // ---- scoping and output ------------------------------------------------------------
 
-const mineIds = (db, me) => db.patients.filter((p) => p.phone === me.phone).map((p) => p.id);
+// Clinic admin runs the clinic. Doctors and the admin may read private notes and review hygiene photos.
+const ADMIN = "clinic_admin";
+const REVIEWERS = ["clinic_admin", "doctor"];
+const CLINICAL = ["clinic_admin", "doctor", "consultant"];
+
+// A patient only sees the clinic they signed in for, even if the same phone is a patient elsewhere.
+const mineIds = (db, me) => db.patients.filter((p) => p.phone === me.phone && (!me.session_clinic || p.clinic === me.session_clinic)).map((p) => p.id);
 
 function visible(db, me, key, rec) {
   if (me.role === "patient") {
@@ -231,7 +242,7 @@ function applyAdvance(db, inv, amount) {
 
 function out(db, me, key, r) {
   const { password, ...rec } = r; // eslint-disable-line no-unused-vars
-  if (key === "patients" && me.role !== "doctor") delete rec.private_notes;
+  if (key === "patients" && !REVIEWERS.includes(me.role)) delete rec.private_notes;
   if (key === "visits") {
     rec.patient_name = db.patients.find((p) => p.id === r.patient)?.name || "";
     rec.duration_minutes = visitMinutes(r);
@@ -253,13 +264,14 @@ function out(db, me, key, r) {
     rec.received_by_name = db.users.find((u) => u.id === r.received_by)?.name || "";
     delete rec.received_by;
   }
+  if (key === "users") rec.signup_pending = !!r.signup_pending && !r.is_active;
   if (key === "items") rec.is_low = r.quantity <= r.reorder_level;
   if (key === "rules" || key === "movements") rec.item_name = db.items.find((i) => i.id === r.item)?.name || "";
   if (key === "documents") rec.days_left = r.expiry_date ? Math.round((new Date(r.expiry_date) - new Date(localDate(nowIso()))) / 864e5) : null;
   if (key === "clinics") {
-    rec.doctors = db.users.filter((u) => u.clinic === r.id && ["doctor", "consultant"].includes(u.role))
+    rec.doctors = db.users.filter((u) => u.clinic === r.id && u.is_active && (["doctor", "consultant"].includes(u.role) || (u.role === "clinic_admin" && u.designation)))
       .map((u) => ({ name: u.name, role: u.role, designation: u.designation, speciality: u.speciality, registration_number: u.registration_number }));
-    if (me.role !== "doctor") delete rec.code;
+    delete rec.code;
   }
   return rec;
 }
@@ -356,6 +368,7 @@ export async function mockRequest(method, path, { params = {}, body, token }) {
   await delay(90);
   const db = load();
   db.history ||= [];
+  db.sessions ||= {};
   const seg = path.split("/").filter(Boolean);
   const result = await route(db, method, seg, params, body, token);
   save(db);
@@ -363,10 +376,12 @@ export async function mockRequest(method, path, { params = {}, body, token }) {
 }
 
 async function route(db, method, seg, params, body, token) {
+  if (seg[0] === "public") return publicApi(db, seg, params); // the marketplace needs no login
   if (seg[0] === "auth") return auth(db, method, seg[1], seg[2], body, token);
 
-  const me = db.users.find((u) => u.id === db.tokens[token]);
-  if (!me) throw new ApiError(401, { detail: "Invalid token." });
+  const found = db.users.find((u) => u.id === db.tokens[token]);
+  if (!found) throw new ApiError(401, { detail: "Invalid token." });
+  const me = { ...found, session_clinic: db.sessions[token] ?? found.clinic };
 
   if (seg[0] === "dashboard") return dashboard(db, me);
   if (seg[0] === "lists") return MOCK_LISTS;
@@ -381,92 +396,127 @@ async function route(db, method, seg, params, body, token) {
 
 // ---- auth -----------------------------------------------------------------------------
 
-const publicUser = ({ password, ...u }) => u; // eslint-disable-line no-unused-vars
-const issue = (db, user) => { const token = rand(); db.tokens[token] = user.id; return { token, user: publicUser(user) }; };
+const clinicInfo = (db, id) => { const c = db.clinics.find((x) => x.id === id); return { clinic_id: c?.id ?? null, clinic_name: c?.name ?? "", clinic_slug: c?.slug ?? "" }; };
+const publicUser = (db, { password, ...u }, clinicId) => ({ ...u, is_super_admin: false, signup_pending: !!u.signup_pending && !u.is_active, ...clinicInfo(db, clinicId) }); // eslint-disable-line no-unused-vars
+const issue = (db, user, clinicId) => {
+  const token = rand();
+  db.tokens[token] = user.id;
+  db.sessions[token] = clinicId ?? null;
+  return { token, user: publicUser(db, user, clinicId) };
+};
+const WRONG_LOGIN = "Wrong phone number, password or clinic.";
+
+// What the marketplace shows about a clinic: only what the clinic publishes (never the contact person or notes).
+const publicClinic = (db, c) => ({
+  id: c.id, slug: c.slug, name: c.name, city: c.city || "", state: c.state || "", pincode: c.pincode || "", address: c.address || "",
+  location_url: c.location_url || "", phone: c.phone || "", email: c.email || "", website_url: c.website_url || "", social_url: c.social_url || "",
+  google_review_url: c.google_review_url || "", about: c.about || "", timings: c.timings || "",
+  doctors: db.users.filter((u) => u.clinic === c.id && u.is_active && (["doctor", "consultant"].includes(u.role) || (u.role === "clinic_admin" && u.designation)))
+    .map((u) => ({ name: u.name, designation: u.designation, speciality: u.speciality })),
+});
+
+function publicApi(db, seg, params = {}) {
+  if (seg[1] !== "clinics") throw new ApiError(404, { detail: "Not found." });
+  const live = db.clinics.filter((c) => c.is_active !== false);
+  if (seg[2]) {
+    const c = live.find((x) => x.slug === seg[2]);
+    if (!c) throw new ApiError(404, { detail: "Not found." });
+    return publicClinic(db, c);
+  }
+  const q = String(params.search || "").trim().toLowerCase();
+  const same = (a, b) => !b || String(a || "").toLowerCase() === String(b).toLowerCase();
+  return live
+    .filter((c) => `${c.name} ${c.city}`.toLowerCase().includes(q) && same(c.city, params.city) && same(c.state, params.state))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => publicClinic(db, c));
+}
 
 function auth(db, method, a, b, body, token) {
   const { data } = parse(body);
 
   if (a === "login") {
     const phone = digits(data.phone);
-    const u = db.users.find((x) => x.phone === phone && x.role !== "patient" && x.password === data.password);
-    if (!u) throw new ApiError(401, { detail: "Wrong phone number or password." });
-    return issue(db, u);
+    const clinic = Number(data.clinic) || null;
+    const u = db.users.find((x) => x.phone === phone && x.role !== "patient" && x.password === data.password && x.is_active);
+    if (!u) {
+      const waiting = db.users.find((x) => x.phone === phone && x.password === data.password && x.signup_pending && !x.is_active && x.clinic === clinic);
+      if (waiting) throw new ApiError(403, { detail: "Your account is waiting for approval. Your clinic admin will switch it on, then you can log in." });
+      throw new ApiError(401, { detail: WRONG_LOGIN });
+    }
+    if (!clinic) throw bad("clinic", "Choose your clinic.");
+    if (u.clinic !== clinic) throw new ApiError(401, { detail: WRONG_LOGIN });
+    return issue(db, u, clinic);
   }
 
-  // The sign-up list: only the name and the place, never contact details (the real API does the same).
-  if (a === "clinics") {
-    const q = String(data?.search || "").toLowerCase();
-    return db.clinics.filter((c) => c.is_active !== false && `${c.name} ${c.city}`.toLowerCase().includes(q))
-      .map((c) => ({ id: c.id, name: c.name, city: c.city || "", state: c.state || "" }));
-  }
+  // The same list the marketplace shows. Kept for the sign-up pickers.
+  if (a === "clinics") return publicApi(db, ["public", "clinics"], {});
 
   if (a === "register") {
     const phone = digits(data.phone);
-    if (!data.name?.trim()) throw bad("name", "This field is required.");
-    if (!PHONE_RE.test(phone)) throw bad("phone", "Enter a 10-digit Indian mobile number.");
-    if (db.users.some((u) => u.phone === phone)) throw bad("phone", "Phone already in use.");
     const role = data.role;
     if (!["doctor", "consultant", "assistant", "patient"].includes(role)) throw bad("role", "Choose a role.");
-    if (role !== "patient" && String(data.password || "").length < 6) throw bad("password", "Use at least 6 characters.");
-
-    let clinic;
-    if (role === "doctor") {
-      clinic = db.clinics.find((c) => c.id === Number(data.clinic) && c.is_active !== false);
-      if (!clinic) throw bad("clinic", "Choose your clinic from the list.");
-      // Demo only: the real server keeps the account switched off until the platform admin approves it.
-      if (!db.chairs.some((c) => c.clinic === clinic.id)) db.chairs.push({ id: db.seq++, clinic: clinic.id, name: "Chair 1", status: "ready" });
-    } else {
-      clinic = db.clinics.find((c) => c.code.toLowerCase() === String(data.clinic_code || "").trim().toLowerCase());
-      if (!clinic) throw bad("clinic_code", "No clinic found with this code. Ask your clinic for it.");
-    }
+    if (!data.name?.trim()) throw bad("name", "This field is required.");
+    if (!PHONE_RE.test(phone)) throw bad("phone", "Enter a 10-digit Indian mobile number.");
+    const clinic = db.clinics.find((c) => c.id === Number(data.clinic) && c.is_active !== false);
+    if (!clinic) throw bad("clinic", "Choose your clinic from the list.");
+    const existing = db.users.find((u) => u.phone === phone);
 
     if (role === "patient") {
-      if (!data.consent_data) throw bad("consent_data", "Consent is required to register.");
-      db.patients.push({
-        id: db.seq++, clinic: clinic.id, name: data.name.trim(), phone, locality: "", chief_complaint: "", medical_history: "", dental_history: "",
-        language: "en", consent_data: true, consent_whatsapp: !!data.consent_whatsapp, tips_subscribed: false, private_notes: "", selfie_url: null, created_at: nowIso(),
-      });
-      return { detail: "Account created. Log in with the code sent on WhatsApp.", dev_otp: OTP_CODE };
+      if (!data.consent_data) throw bad("consent_data", "Please accept the data consent to continue.");
+      if (existing && existing.role !== "patient") throw bad("phone", "This number belongs to a staff account.");
+      if (!db.patients.some((p) => p.phone === phone && p.clinic === clinic.id)) {
+        db.patients.push({
+          id: db.seq++, clinic: clinic.id, name: data.name.trim(), phone, locality: "", chief_complaint: "", medical_history: "", dental_history: "",
+          language: "en", consent_data: true, consent_whatsapp: !!data.consent_whatsapp, tips_subscribed: false, private_notes: "", selfie_url: null, created_at: nowIso(),
+        });
+      }
+      return { detail: "Registered. Log in with the code we send on WhatsApp.", pending: false };
     }
 
-    const user = {
+    if (existing) throw bad("phone", "Phone already in use.");
+    if (String(data.password || "").length < 6) throw bad("password", "Use at least 6 characters.");
+    // Like the real server: the account stays switched off until the clinic admin approves it.
+    db.users.push({
       id: db.seq++, phone, password: data.password, name: data.name.trim(), role, clinic: clinic.id,
-      designation: data.designation || "", speciality: data.speciality || "", registration_number: data.registration_number || "", is_active: true,
-    };
-    db.users.push(user);
-    return issue(db, user);
+      designation: data.designation || "", speciality: data.speciality || "", registration_number: data.registration_number || "",
+      is_active: false, signup_pending: true,
+    });
+    return { detail: "Request received. Your clinic admin will switch your account on, then you can log in.", pending: true };
   }
 
   if (a === "otp" && b === "request") {
     const phone = digits(data.phone);
     if (!PHONE_RE.test(phone)) throw bad("phone", "Enter a 10-digit Indian mobile number.");
-    const res = { detail: "If this number is registered, a code has been sent on WhatsApp." };
-    if (db.patients.some((p) => p.phone === phone)) { db.otps[phone] = { code: OTP_CODE, tries: 0 }; res.dev_otp = OTP_CODE; }
+    if (!data.clinic) throw bad("clinic", "This field is required.");
+    const res = { detail: "If this number is registered at this clinic, a code has been sent on WhatsApp." };
+    if (db.patients.some((p) => p.phone === phone && p.clinic === Number(data.clinic))) { db.otps[phone] = { code: OTP_CODE, tries: 0 }; res.dev_otp = OTP_CODE; }
     return res;
   }
 
   if (a === "otp" && b === "verify") {
     const phone = digits(data.phone);
+    const clinic = Number(data.clinic) || null;
     const otp = db.otps[phone];
+    const invalid = () => new ApiError(400, { detail: "Invalid or expired code." });
     if (!otp || otp.tries >= 5 || String(data.code) !== otp.code) {
       if (otp) otp.tries += 1;
-      throw new ApiError(400, { detail: "Invalid or expired code." });
+      throw invalid();
     }
+    if (!db.patients.some((p) => p.phone === phone && p.clinic === clinic)) throw invalid(); // a code for one clinic does not open another
     delete db.otps[phone];
     let user = db.users.find((u) => u.phone === phone);
     if (!user) {
       const first = db.patients.find((p) => p.phone === phone);
-      user = { id: db.seq++, phone, password: "", name: first?.name || "", role: "patient", clinic: null, designation: "", speciality: "", registration_number: "", is_active: true };
+      user = { id: db.seq++, phone, password: "", name: first?.name || "", role: "patient", clinic: null, designation: "", speciality: "", registration_number: "", is_active: true, signup_pending: false };
       db.users.push(user);
     } else if (user.role !== "patient") throw new ApiError(400, { detail: "Staff must log in with a password." });
-    return issue(db, user);
+    return issue(db, user, clinic);
   }
 
   const me = db.users.find((u) => u.id === db.tokens[token]);
   if (!me) throw new ApiError(401, { detail: "Invalid token." });
-  if (a === "me") return publicUser(me);
-  if (a === "logout") { delete db.tokens[token]; return null; }
+  if (a === "me") return publicUser(db, me, db.sessions[token] ?? me.clinic);
+  if (a === "logout") { delete db.tokens[token]; delete db.sessions[token]; return null; }
   throw new ApiError(404, { detail: "Not found." });
 }
 
@@ -477,13 +527,13 @@ async function collection(db, me, method, key, rest, params, body) {
   const isId = first && /^\d+$/.test(first);
 
   if (me.role === "patient" && method !== "GET" && key !== "feedback") throw forbidden();
-  if (key === "checks" && !["doctor", "assistant"].includes(me.role)) throw forbidden();
-  if (key === "documents" && me.role !== "doctor") throw forbidden();
-  if (["items", "rules", "chairs", "users", "clinics"].includes(key) && method !== "GET" && me.role !== "doctor" && !(key === "items" && second === "stock-in")) throw forbidden();
-  if (key === "movements" && me.role !== "doctor") throw forbidden();
+  if (key === "checks" && !["clinic_admin", "doctor", "assistant"].includes(me.role)) throw forbidden();
+  if (key === "documents" && me.role !== ADMIN) throw forbidden();
+  if (["items", "rules", "chairs", "users", "clinics"].includes(key) && method !== "GET" && me.role !== ADMIN && !(key === "items" && second === "stock-in")) throw forbidden();
+  if (key === "movements" && me.role !== ADMIN) throw forbidden();
   if (key === "feedback" && method === "GET" && me.role === "assistant") throw forbidden();
   if (key === "advances" && method === "PATCH") throw new ApiError(405, { detail: 'Method "PATCH" not allowed.' }); // never edited
-  if (key === "advances" && method === "DELETE" && me.role !== "doctor") throw forbidden();
+  if (key === "advances" && method === "DELETE" && me.role !== ADMIN) throw forbidden();
 
   if (first && !isId) return listAction(db, me, key, first, method, params, body);
   if (!first) return method === "GET" ? list(db, me, key, params) : create(db, me, key, body);
@@ -541,7 +591,7 @@ async function create(db, me, key, body) {
       Object.assign(rec, {
         phone, locality: data.locality || "", chief_complaint: data.chief_complaint || "", medical_history: data.medical_history || "",
         dental_history: data.dental_history || "", language: data.language || "en", consent_data: true, consent_whatsapp: !!data.consent_whatsapp,
-        tips_subscribed: false, private_notes: me.role === "doctor" ? data.private_notes || "" : "",
+        tips_subscribed: false, private_notes: REVIEWERS.includes(me.role) ? data.private_notes || "" : "",
         selfie_url: await fileToData(files.selfie), created_at: nowIso(),
       });
       delete rec.selfie;
@@ -623,9 +673,9 @@ async function create(db, me, key, body) {
       const phone = digits(data.phone);
       if (!PHONE_RE.test(phone)) throw bad("phone", "Enter a 10-digit Indian mobile number.");
       if (db.users.some((u) => u.phone === phone)) throw bad("phone", "Phone already in use.");
-      if (!["doctor", "consultant", "assistant"].includes(data.role)) throw bad("role", "Patients register through the patient endpoint.");
+      if (!["clinic_admin", "doctor", "consultant", "assistant"].includes(data.role)) throw bad("role", "Choose clinic admin, doctor, consultant or assistant.");
       if (String(data.password || "").length < 6) throw bad("password", "Use at least 6 characters.");
-      Object.assign(rec, { phone, is_active: true, designation: data.designation || "", speciality: data.speciality || "", registration_number: data.registration_number || "" });
+      Object.assign(rec, { phone, is_active: true, signup_pending: false, designation: data.designation || "", speciality: data.speciality || "", registration_number: data.registration_number || "" });
       break;
     }
     case "checks": {
@@ -663,13 +713,24 @@ function update(db, me, key, rec, body) {
   if (key === "patients") {
     if (data.phone && digits(data.phone) !== rec.phone) throw bad("phone", "Phone number cannot be changed.");
     delete data.phone; delete data.selfie;
-    if (me.role !== "doctor") delete data.private_notes;
+    if (!REVIEWERS.includes(me.role)) delete data.private_notes;
   }
   if (key === "visits" && data.status === "in_progress" && rec.status !== "in_progress") {
     const chair = db.chairs.find((c) => c.id === (data.chair ?? rec.chair));
     if (chair?.status === "locked") throw bad("chair", "Chair is locked until the 4 hygiene photos are submitted.");
   }
   if (key === "users" && !data.password) delete data.password;
+  if (key === "users") {
+    delete data.signup_pending;
+    if (data.role && !["clinic_admin", "doctor", "consultant", "assistant"].includes(data.role)) throw bad("role", "Choose clinic admin, doctor, consultant or assistant.");
+    if (rec.id === me.id) {
+      if (data.is_active === false) throw bad("is_active", "You cannot turn off your own account.");
+      if (data.role && data.role !== rec.role) throw bad("role", "You cannot change your own role.");
+    }
+    const stays = (data.role ?? rec.role) === "clinic_admin" && (data.is_active ?? rec.is_active);
+    const another = db.users.some((u) => u.id !== rec.id && u.clinic === rec.clinic && u.role === "clinic_admin" && u.is_active);
+    if (rec.role === "clinic_admin" && rec.is_active && !stays && !another) throw new ApiError(400, { detail: "This is the clinic's only admin. Make someone else a clinic admin first." });
+  }
   if (key === "treatments" && "tooth" in data) data.tooth = cleanTeeth(data.tooth);
   if (key === "visits") checkVisit(db, { ...rec, ...data }, rec.id);
   Object.assign(rec, data);
@@ -709,7 +770,7 @@ function listAction(db, me, key, name, method, params, body) {
     return clinicRows("documents").filter((d) => d.expiry_date && d.expiry_date <= dateIn(60)).map((d) => out(db, me, "documents", d));
   }
   if (key === "checks" && name === "score") {
-    if (me.role !== "doctor") throw forbidden();
+    if (!REVIEWERS.includes(me.role)) throw forbidden();
     const days = Number(params.days || 30);
     const since = Date.now() - days * 864e5;
     const rows = clinicRows("checks").filter((c) => new Date(c.taken_at).getTime() >= since);
@@ -718,7 +779,7 @@ function listAction(db, me, key, name, method, params, body) {
     return { days, pending: count("pending"), approved: count("approved"), redo: count("redo"), total, score: total ? Math.round((100 * count("approved")) / total) : null };
   }
   if (key === "messages" && name === "broadcast" && method === "POST") {
-    if (me.role !== "doctor") throw forbidden();
+    if (me.role !== ADMIN) throw forbidden();
     if (!data.template?.trim()) throw bad("template", "This field is required.");
     const pats = clinicRows("patients").filter((p) => p.consent_whatsapp);
     pats.forEach((p) => db.messages.push({ id: db.seq++, clinic: me.clinic, patient: p.id, to_phone: p.phone, kind: "offer", template: data.template, params: data.params || [], status: "dry_run", error: "", created_at: nowIso() }));
@@ -730,6 +791,11 @@ function listAction(db, me, key, name, method, params, body) {
 function recordAction(db, me, key, rec, name, method, body) {
   const { data } = parse(body);
 
+  if (key === "users" && name === "approve" && method === "POST") {
+    if (!(rec.signup_pending && !rec.is_active)) throw new ApiError(400, { detail: "This account is not waiting for approval." });
+    rec.is_active = true; rec.signup_pending = false;
+    return out(db, me, key, rec);
+  }
   if (key === "patients" && name === "history") return method === "GET" ? historyOf(db, rec.id) : saveHistory(db, me, rec, data);
   if (key === "visits" && name === "reschedule" && method === "POST") {
     if (["in_progress", "completed", "cancelled"].includes(rec.status)) throw bad("status", "A visit that is in progress, completed or cancelled cannot be moved. Book a new one.");
@@ -756,7 +822,7 @@ function recordAction(db, me, key, rec, name, method, body) {
     return out(db, me, key, rec);
   }
   if (key === "advances" && name === "refund" && method === "POST") {
-    if (me.role !== "doctor") throw forbidden();
+    if (me.role !== ADMIN) throw forbidden();
     const balance = advBalance(db, rec);
     const amount = data.amount === undefined || data.amount === "" ? balance : Number(data.amount);
     if (!(amount > 0) || amount > balance) throw bad("amount", `Only ${balance} is left to refund.`);
@@ -765,7 +831,7 @@ function recordAction(db, me, key, rec, name, method, body) {
   }
 
   if (key === "treatments" && name === "complete" && method === "POST") {
-    if (!["doctor", "consultant"].includes(me.role)) throw forbidden();
+    if (!CLINICAL.includes(me.role)) throw forbidden();
     rec.status = "done"; rec.done_at = rec.done_at || nowIso();
     const used = [];
     if (!rec.stock_deducted) {
@@ -789,7 +855,7 @@ function recordAction(db, me, key, rec, name, method, body) {
     return { item: item.name, left: item.quantity };
   }
   if (key === "checks" && name === "review" && method === "POST") {
-    if (me.role !== "doctor") throw forbidden();
+    if (!REVIEWERS.includes(me.role)) throw forbidden();
     if (!["approved", "redo"].includes(data.status)) throw bad("status", "Use 'approved' or 'redo'.");
     Object.assign(rec, { status: data.status, review_note: String(data.note || "").slice(0, 200), reviewed_at: nowIso() });
     if (rec.visit) unlockChair(db, rec.visit);
@@ -805,7 +871,7 @@ function recordAction(db, me, key, rec, name, method, body) {
     return out(db, me, key, rec);
   }
   if (key === "items" && name === "count" && method === "POST") {
-    if (me.role !== "doctor") throw forbidden();
+    if (me.role !== ADMIN) throw forbidden();
     if (!(data.counted >= 0)) throw bad("counted", "Enter the counted quantity.");
     const variance = r2(data.counted - rec.quantity);
     rec.quantity = data.counted;
@@ -813,7 +879,7 @@ function recordAction(db, me, key, rec, name, method, body) {
     return { item: rec.name, quantity: rec.quantity, variance };
   }
   if (key === "feedback" && name === "reply" && method === "POST") {
-    if (me.role !== "doctor") throw forbidden();
+    if (me.role !== ADMIN) throw forbidden();
     rec.reply = String(data.reply || "");
     return out(db, me, key, rec);
   }
@@ -821,7 +887,7 @@ function recordAction(db, me, key, rec, name, method, body) {
 }
 
 function dashboard(db, me) {
-  if (me.role !== "doctor") throw forbidden();
+  if (me.role !== ADMIN) throw forbidden();
   const rows = (k) => db[k].filter((r) => r.clinic === me.clinic);
   const today = localDate(nowIso());
   const items = rows("items");
@@ -835,6 +901,7 @@ function dashboard(db, me) {
     documents_expiring_in_60_days: rows("documents").filter((d) => d.expiry_date && d.expiry_date <= dateIn(60)).length,
     hygiene_photos_to_review: rows("checks").filter((c) => c.status === "pending").length,
     locked_chairs: rows("chairs").filter((c) => c.status === "locked").length,
+    pending_signups: db.users.filter((u) => u.clinic === me.clinic && u.signup_pending && !u.is_active).length,
     dues: r2(billed),
     average_rating_30_days: ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null,
   };

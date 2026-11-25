@@ -4,7 +4,8 @@ import { api, fmtDateTime } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Async, Badge, Card, Field, Modal, Page, label, useLoad, useSubmit, useToast } from "../components/ui";
 
-const ROLE_OPTIONS = ["doctor", "consultant", "assistant", "super_admin"];
+const ROLE_OPTIONS = ["clinic_admin", "doctor", "consultant", "assistant", "super_admin"];
+const ROLE_NAME = { super_admin: "Platform admin", clinic_admin: "Clinic admin" };
 
 export default function Users() {
   const { user: me } = useAuth();
@@ -38,7 +39,7 @@ export default function Users() {
       <div className="row gap wrap">
         <input className="input search" placeholder="Search name or phone" value={f.search} onChange={set("search")} aria-label="Search accounts" />
         <select className="input date" value={f.role} onChange={set("role")} aria-label="Filter by role">
-          <option value="">All roles</option>{ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r === "super_admin" ? "Platform admin" : label(r)}</option>)}
+          <option value="">All roles</option>{ROLE_OPTIONS.map((r) => <option key={r} value={r}>{ROLE_NAME[r] || label(r)}</option>)}
         </select>
         <select className="input date" value={f.status} onChange={set("status")} aria-label="Filter by status">
           <option value="">All accounts</option><option value="pending">Waiting for approval</option><option value="true">On</option><option value="false">Turned off</option>
@@ -54,7 +55,7 @@ export default function Users() {
                   {rows.map((u) => (
                     <tr key={u.id} className={u.is_active || u.signup_pending ? "" : "row-off"}>
                       <td><b>{u.name || "No name"}</b><div className="muted small mono">{u.phone}</div></td>
-                      <td>{u.is_super_admin ? <Badge tone="amber">Platform admin</Badge> : <Badge tone="teal">{label(u.role)}</Badge>}</td>
+                      <td>{u.is_super_admin ? <Badge tone="amber">Platform admin</Badge> : <Badge tone={u.role === "clinic_admin" ? "blue" : "teal"}>{ROLE_NAME[u.role] || label(u.role)}</Badge>}</td>
                       <td>{u.clinic_name || "–"}</td>
                       <td>{u.signup_pending ? <Badge tone="amber">Waiting for approval</Badge> : u.is_active ? <Badge tone="green">On</Badge> : <Badge tone="red">Turned off</Badge>}</td>
                       <td className="small">{u.last_login ? fmtDateTime(u.last_login) : "Never"}</td>

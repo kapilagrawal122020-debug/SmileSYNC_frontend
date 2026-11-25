@@ -5,7 +5,8 @@ import { useLists } from "../lists/useLists";
 
 // Which screens each role sees (follows the "who can see and do what" table in the brief).
 const NAV = {
-  doctor: [["/", "Today"], ["/patients", "Patients"], ["/appointments", "Appointments"], ["/hygiene", "Hygiene"], ["/inventory", "Inventory"], ["/messages", "Messages"], ["/clinic", "Clinic"]],
+  clinic_admin: [["/", "Today"], ["/patients", "Patients"], ["/appointments", "Appointments"], ["/hygiene", "Hygiene"], ["/inventory", "Inventory"], ["/messages", "Messages"], ["/team", "Team"], ["/clinic", "Clinic"]],
+  doctor: [["/", "Today"], ["/patients", "Patients"], ["/appointments", "Appointments"], ["/hygiene", "Hygiene"], ["/inventory", "Inventory"], ["/clinic", "Clinic"]],
   consultant: [["/", "Today"], ["/patients", "Patients"], ["/appointments", "Appointments"], ["/inventory", "Inventory"], ["/clinic", "Clinic"]],
   assistant: [["/", "Today"], ["/patients", "Patients"], ["/appointments", "Appointments"], ["/hygiene", "Hygiene"], ["/inventory", "Inventory"], ["/clinic", "Clinic"]],
   patient: [["/", "My health"], ["/clinic", "My clinic"]],
@@ -23,7 +24,10 @@ export default function Layout() {
     <div className="shell">
       <header className="topbar">
         <div className="topbar-in">
-          <div className="brand"><span className="logo">S</span> SmileSYNC{user.is_super_admin && <span className="admin-tag">Admin</span>}</div>
+          <div className="brand-block">
+            <div className="brand"><span className="logo">S</span> SmileSYNC{user.is_super_admin && <span className="admin-tag">Admin</span>}</div>
+            {!user.is_super_admin && user.clinic_name && <span className="clinic-pill" title="The clinic you are signed in to">{user.clinic_name}</span>}
+          </div>
           <nav className="nav" aria-label="Main">
             {links.map(([to, text]) => (
               <NavLink key={to} to={to} end={to === "/" || to === "/admin"} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>{text}</NavLink>

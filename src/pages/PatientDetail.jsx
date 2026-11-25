@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtDate, fmtDateTime, rupees } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { canReview, isClinical } from "../auth/roles";
 import {
   Async, Badge, Card, Empty, ErrorNote, Field, FileInput, Loading, Modal, Page, SecureImage, STATUS_TONE,
   buildBody, label, useLoad, useSubmit, useToast,
@@ -69,7 +70,7 @@ function Overview({ p, reload, history, onHistory }) {
         </div>
       </Card>
       <HistoryCard history={history} canEdit={user.role !== "patient"} onEdit={onHistory} />
-      {user.role === "doctor" && (
+      {canReview(user) && (
         <Card title="Private notes" className="private">
           <p>{p.private_notes || <span className="muted">No private notes. Only the doctor can see this.</span>}</p>
         </Card>
@@ -87,7 +88,7 @@ function Overview({ p, reload, history, onHistory }) {
 function Treatments({ patientId }) {
   const { user } = useAuth();
   const toast = useToast();
-  const canEdit = user.role === "doctor" || user.role === "consultant";
+  const canEdit = isClinical(user);
   const list = useLoad(() => api.list("/treatments/", { patient: patientId }), [patientId]);
   const [adding, setAdding] = useState(false);
 

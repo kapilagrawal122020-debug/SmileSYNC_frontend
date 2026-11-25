@@ -51,7 +51,7 @@ function BookModal({ presetPatient, defaultDate, onClose, onSaved }) {
   }, (visit) => { toast("Visit booked"); onSaved(visit); });
 
   const [patients, users, chairs] = refs.data || [[], [], []];
-  const doctors = users.filter((u) => ["doctor", "consultant"].includes(u.role));
+  const doctors = users.filter((u) => ["clinic_admin", "doctor", "consultant"].includes(u.role) && u.is_active && (u.role !== "clinic_admin" || u.designation));
 
   return (
     <Modal title="Book a visit" onClose={onClose}>

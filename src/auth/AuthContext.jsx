@@ -6,11 +6,14 @@ const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
 export const ROLES = [
-  { id: "doctor", label: "Doctor / owner", hint: "Full clinical view, reports, inventory, documents" },
+  { id: "clinic_admin", label: "Clinic admin", hint: "Runs the clinic: team, billing, stock, documents" },
+  { id: "doctor", label: "Doctor", hint: "Treats patients, private notes, hygiene review" },
   { id: "consultant", label: "Consultant", hint: "Treats patients, sees appointments" },
   { id: "assistant", label: "Assistant", hint: "Registers patients, images, hygiene, stock in" },
   { id: "patient", label: "Patient", hint: "Your records, scans, invoices, visits" },
 ];
+// Who can ask to join a clinic. Clinic admins are created by the SmileSYNC team, so they are not on this list.
+export const SIGNUP_ROLES = ROLES.filter((r) => r.id !== "clinic_admin");
 export const isStaff = (role) => role && role !== "patient";
 
 const readUser = () => {
@@ -22,6 +25,7 @@ export function AuthProvider({ children }) {
 
   const finish = useCallback(({ token, user: u }) => {
     clearLists();
+    if (u?.clinic_id) storage.set("ss_clinic", String(u.clinic_id)); // so the next sign in starts at the same clinic
     storage.set("ss_token", token);
     storage.set("ss_user", JSON.stringify(u));
     setUser(u);
@@ -35,10 +39,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   // Staff: phone + password.
-  const loginStaff = useCallback(async (phone, password) => finish(await api.post("/auth/login/", { phone, password })), [finish]);
+  // Staff sign in to one clinic. The platform admin signs in without one.
+  const loginStaff = useCallback(async (phone, password, clinic) => finish(await api.post("/auth/login/", { phone, password, ...(clinic ? { clinic } : {}) })), [finish]);
   // Patients: ask for a code on WhatsApp, then verify it.
-  const requestOtp = useCallback((phone) => api.post("/auth/otp/request/", { phone }), []);
-  const verifyOtp = useCallback(async (phone, code) => finish(await api.post("/auth/otp/verify/", { phone, code })), [finish]);
+  const requestOtp = useCallback((phone, clinic) => api.post("/auth/otp/request/", { phone, clinic }), []);
+  const verifyOtp = useCallback(async (phone, code, clinic) => finish(await api.post("/auth/otp/verify/", { phone, code, clinic })), [finish]);
 
   const register = useCallback(async (payload) => {
     let res;

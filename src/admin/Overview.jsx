@@ -18,10 +18,17 @@ export default function Overview() {
               <Stat label="List values" value={d.lists.values} />
               <Stat label="Audit events, 7 days" value={d.audit_events_7_days} />
             </div>
+            {d.clinics_without_admin > 0 && (
+              <div className="alert-banner amber" role="status">
+                <b>{d.clinics_without_admin} {d.clinics_without_admin === 1 ? "clinic has" : "clinics have"} no admin yet.</b>
+                <span>Nobody there can approve their team or manage the clinic until you add one.</span>
+                <Link className="link" to="/admin/clinics">Add an admin</Link>
+              </div>
+            )}
             {d.pending_signups > 0 && (
               <div className="alert-banner amber" role="status">
-                <b>{d.pending_signups} {d.pending_signups === 1 ? "doctor is" : "doctors are"} waiting for approval.</b>
-                <span>Check the clinic with its point of contact, then approve the account.</span>
+                <b>{d.pending_signups} {d.pending_signups === 1 ? "person is" : "people are"} waiting for approval.</b>
+                <span>Clinic admins approve their own team. You can approve anyone here too.</span>
                 <Link className="link" to="/admin/users?status=pending">Review now</Link>
               </div>
             )}

@@ -1,4 +1,4 @@
-import { ROLES } from "../auth/AuthContext";
+import { SIGNUP_ROLES } from "../auth/AuthContext";
 import { isMock, setMock, resetMock, storage } from "../api/client";
 
 export function AuthShell({ title, subtitle, children }) {
@@ -6,14 +6,14 @@ export function AuthShell({ title, subtitle, children }) {
     <div className="auth">
       <aside className="auth-side">
         <div className="brand big"><span className="logo">S</span> SmileSYNC</div>
-        <h2>One simple system for your dental clinic.</h2>
+        <h2>One place for dental clinics and their patients.</h2>
         <ul>
           <li>Patient records, X-rays and photos in one place</li>
           <li>Photo-verified chair hygiene</li>
           <li>Stock that deducts itself after each treatment</li>
           <li>WhatsApp reminders and reviews</li>
         </ul>
-        <p className="muted-light">Built for clinics in India.</p>
+        <p className="muted-light">Built for clinics in India. <a href="/" className="muted-link">Find a clinic</a></p>
       </aside>
       <main className="auth-main">
         <div className="auth-card">
@@ -30,7 +30,7 @@ export function AuthShell({ title, subtitle, children }) {
 export function RolePicker({ value, onChange }) {
   return (
     <div className="roles" role="radiogroup" aria-label="Select your role">
-      {ROLES.map((r) => (
+      {SIGNUP_ROLES.map((r) => (
         <button
           type="button" key={r.id} role="radio" aria-checked={value === r.id}
           className={`role ${value === r.id ? "on" : ""}`} onClick={() => onChange(r.id)}

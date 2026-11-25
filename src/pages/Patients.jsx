@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, fmtDate } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { canReview } from "../auth/roles";
 import { Async, Badge, Card, Field, FileInput, Modal, Page, buildBody, useLoad, useSubmit, useToast } from "../components/ui";
 
 export const LANGUAGES = [
@@ -68,7 +69,7 @@ export function PatientForm({ initial, onSaved, onCancel }) {
 
   const { submit, busy, error, fields } = useSubmit(() => {
     const values = { ...v, phone: v.phone.replace(/\D/g, "").slice(-10) };
-    if (user.role !== "doctor") delete values.private_notes;
+    if (!canReview(user)) delete values.private_notes;
     if (editing) delete values.phone;
     const body = buildBody(values, "selfie", selfie);
     return editing ? api.patch(`/patients/${initial.id}/`, body) : api.post("/patients/", body);
@@ -96,7 +97,7 @@ export function PatientForm({ initial, onSaved, onCancel }) {
       {!editing && (
         <Field label="Selfie (optional)" error={fields.selfie}><FileInput capture="user" onChange={setSelfie} /></Field>
       )}
-      {user.role === "doctor" && (
+      {canReview(user) && (
         <Field label="Private notes" hint="Only you can see these (discount, behaviour…)" error={fields.private_notes}>
           <textarea className="input" rows={2} value={v.private_notes} onChange={set("private_notes")} />
         </Field>

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api, fmtDate } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { isAdmin, isClinical } from "../auth/roles";
 import { Async, Badge, Card, Field, FileInput, Modal, Page, buildBody, label, useLoad, useSubmit, useToast } from "../components/ui";
 import { Stars } from "./PatientHome";
 
@@ -12,18 +14,17 @@ const docName = (d) => d.title || DOC_TYPES.find(([k]) => k === d.doc_type)?.[1]
 
 export default function Clinic() {
   const { user } = useAuth();
-  const isDoctor = user.role === "doctor";
+  const canManage = isAdmin(user);
   const clinics = useLoad(() => api.list("/clinics/"), []);
 
   return (
-    <Page title={user.role === "patient" ? "My clinic" : "Clinic"} subtitle={isDoctor ? "Profile, staff, chairs, documents and feedback." : undefined}>
+    <Page title={user.role === "patient" ? "My clinic" : "Clinic"} subtitle={canManage ? "Your public profile, chairs, documents and feedback. Manage people on the Team page." : undefined}>
       <Async state={clinics} empty="No clinic found.">
-        {(rows) => rows.map((c) => <Profile key={c.id} clinic={c} editable={isDoctor} reload={clinics.reload} />)}
+        {(rows) => rows.map((c) => <Profile key={c.id} clinic={c} editable={canManage} reload={clinics.reload} />)}
       </Async>
-      {isDoctor && <Staff />}
-      {user.role !== "patient" && <Chairs canEdit={isDoctor} />}
-      {isDoctor && <Documents />}
-      {(isDoctor || user.role === "consultant") && <Feedback canReply={isDoctor} />}
+      {user.role !== "patient" && <Chairs canEdit={canManage} />}
+      {canManage && <Documents />}
+      {isClinical(user) && <Feedback canReply={canManage} />}
     </Page>
   );
 }
@@ -33,9 +34,11 @@ function Profile({ clinic: c, editable, reload }) {
   const links = [["Google reviews", c.google_review_url], ["Website", c.website_url], ["Social", c.social_url]].filter(([, u]) => u);
   return (
     <Card title={c.name} actions={editable && <button className="btn small" onClick={() => setEditing(true)}>Edit</button>}>
-      <p>{[c.address, c.city].filter(Boolean).join(", ") || <span className="muted">No address yet</span>}{c.phone && <> · <span className="mono">{c.phone}</span></>}</p>
+      <p>{[c.address, c.city, c.pincode].filter(Boolean).join(", ") || <span className="muted">No address yet</span>}{c.phone && <> · <span className="mono">{c.phone}</span></>}</p>
+      {c.timings && <p className="muted">Open: {c.timings}</p>}
+      {c.about && <p>{c.about}</p>}
+      {c.slug && <p><Link className="btn small" to={`/c/${c.slug}`} target="_blank">View your public page ↗</Link></p>}
       {links.length > 0 && <p className="row gap wrap">{links.map(([n, u]) => <a key={n} className="btn small" href={u} target="_blank" rel="noreferrer">{n} ↗</a>)}</p>}
-      {c.code && editable && <div className="note info">Clinic code for your team and patients to sign up: <b className="mono">{c.code}</b></div>}
       {c.doctors?.length > 0 && (
         <>
           <h3>Doctors and consultants</h3>
@@ -57,7 +60,7 @@ function Profile({ clinic: c, editable, reload }) {
 
 function ClinicForm({ clinic, onClose, onSaved }) {
   const toast = useToast();
-  const [v, setV] = useState({ name: clinic.name, address: clinic.address || "", city: clinic.city || "", phone: clinic.phone || "", google_review_url: clinic.google_review_url || "", website_url: clinic.website_url || "", social_url: clinic.social_url || "" });
+  const [v, setV] = useState({ name: clinic.name, address: clinic.address || "", city: clinic.city || "", phone: clinic.phone || "", email: clinic.email || "", timings: clinic.timings || "", about: clinic.about || "", location_url: clinic.location_url || "", google_review_url: clinic.google_review_url || "", website_url: clinic.website_url || "", social_url: clinic.social_url || "" });
   const set = (k) => (e) => setV((s) => ({ ...s, [k]: e.target.value }));
   const { submit, busy, fields, error } = useSubmit(() => api.patch(`/clinics/${clinic.id}/`, v), () => { toast("Clinic updated"); onSaved(); });
   return (
@@ -69,6 +72,12 @@ function ClinicForm({ clinic, onClose, onSaved }) {
           <Field label="City" error={fields.city}><input className="input" value={v.city} onChange={set("city")} /></Field>
           <Field label="Phone" error={fields.phone}><input className="input" value={v.phone} onChange={set("phone")} /></Field>
         </div>
+        <Field label="About your clinic" hint="Shown on your public page" error={fields.about}><textarea className="input" rows={3} value={v.about} onChange={set("about")} /></Field>
+        <div className="grid2">
+          <Field label="Timings" hint="For example: Mon to Sat, 10 am to 7 pm" error={fields.timings}><input className="input" value={v.timings} onChange={set("timings")} /></Field>
+          <Field label="Email" error={fields.email}><input className="input" type="email" value={v.email} onChange={set("email")} /></Field>
+        </div>
+        <Field label="Map link" error={fields.location_url}><input className="input" type="url" value={v.location_url} onChange={set("location_url")} /></Field>
         <Field label="Google review link" error={fields.google_review_url}><input className="input" type="url" value={v.google_review_url} onChange={set("google_review_url")} /></Field>
         <div className="grid2">
           <Field label="Website" error={fields.website_url}><input className="input" type="url" value={v.website_url} onChange={set("website_url")} /></Field>
@@ -78,58 +87,6 @@ function ClinicForm({ clinic, onClose, onSaved }) {
         <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>Save</button></div>
       </form>
     </Modal>
-  );
-}
-
-// ---- Staff (doctor only) -----------------------------------------------------------------
-function Staff() {
-  const toast = useToast();
-  const list = useLoad(() => api.list("/users/"), []);
-  const [adding, setAdding] = useState(false);
-  const [v, setV] = useState({ name: "", phone: "", role: "assistant", password: "", designation: "", speciality: "", registration_number: "" });
-  const set = (k) => (e) => setV((s) => ({ ...s, [k]: e.target.value }));
-  const { submit, busy, fields, error } = useSubmit(
-    () => api.post("/users/", { ...v, phone: v.phone.replace(/\D/g, "").slice(-10) }),
-    () => { toast("Staff member added"); setAdding(false); setV({ name: "", phone: "", role: "assistant", password: "", designation: "", speciality: "", registration_number: "" }); list.reload(); }
-  );
-  return (
-    <Card title="Staff" actions={<button className="btn small primary" onClick={() => setAdding(true)}>+ Add staff</button>}>
-      <Async state={list} empty="No staff yet.">
-        {(rows) => (
-          <ul className="list">
-            {rows.map((u) => (
-              <li key={u.id} className="list-row">
-                <div className="grow"><b>{u.name}</b> <span className="muted mono small">{u.phone}</span></div>
-                <Badge tone={u.role === "doctor" ? "teal" : u.role === "consultant" ? "blue" : "gray"}>{label(u.role)}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Async>
-      {adding && (
-        <Modal title="Add staff member" onClose={() => setAdding(false)}>
-          <form onSubmit={submit} className="form" noValidate>
-            <div className="grid2">
-              <Field label="Name" error={fields.name}><input className="input" value={v.name} onChange={set("name")} autoFocus /></Field>
-              <Field label="Mobile number" error={fields.phone}><input className="input" inputMode="numeric" value={v.phone} onChange={set("phone")} /></Field>
-            </div>
-            <div className="grid2">
-              <Field label="Role" error={fields.role}><select className="input" value={v.role} onChange={set("role")}><option value="assistant">Assistant</option><option value="consultant">Consultant</option><option value="doctor">Doctor</option></select></Field>
-              <Field label="Password" hint="At least 6 characters" error={fields.password}><input className="input" type="password" value={v.password} onChange={set("password")} /></Field>
-            </div>
-            {v.role !== "assistant" && (
-              <div className="grid3">
-                <Field label="Designation" error={fields.designation}><input className="input" value={v.designation} onChange={set("designation")} /></Field>
-                <Field label="Speciality" error={fields.speciality}><input className="input" value={v.speciality} onChange={set("speciality")} /></Field>
-                <Field label="Registration no." error={fields.registration_number}><input className="input" value={v.registration_number} onChange={set("registration_number")} /></Field>
-              </div>
-            )}
-            {error && !Object.keys(fields).length && <div className="note error">{error}</div>}
-            <div className="actions"><button type="button" className="btn ghost" onClick={() => setAdding(false)}>Cancel</button><button className="btn primary" disabled={busy}>Add</button></div>
-          </form>
-        </Modal>
-      )}
-    </Card>
   );
 }
 

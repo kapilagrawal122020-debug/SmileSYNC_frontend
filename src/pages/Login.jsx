@@ -1,39 +1,59 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { isMock } from "../api/client";
+import { isMock, storage } from "../api/client";
 import { Field, useSubmit } from "../components/ui";
-import { AuthShell, RolePicker, cleanPhone } from "./AuthShell";
+import { AuthShell, cleanPhone } from "./AuthShell";
+import ClinicPicker from "./ClinicPicker";
 
-const DEMO = {
-  doctor: { phone: "9000000001", password: "doctor123" },
-  consultant: { phone: "9000000003", password: "consult123" },
-  assistant: { phone: "9000000002", password: "assist123" },
-  patient: { phone: "9111111111" },
-};
+// Sample accounts for demo mode. All of them belong to clinic 1.
+const DEMO_STAFF = [
+  ["Clinic admin", "9000000001", "doctor123"],
+  ["Doctor", "9000000004", "doctor123"],
+  ["Consultant", "9000000003", "consult123"],
+  ["Assistant", "9000000002", "assist123"],
+];
 
+// Everything starts from a clinic: you choose it, then sign in as its team or as one of its patients.
+// The platform admin is the one exception and has its own entrance (?admin=1).
 export default function Login() {
   const { loginStaff, requestOtp, verifyOtp } = useAuth();
-  const [role, setRole] = useState("doctor");
+  const [params, setParams] = useSearchParams();
+  const adminMode = params.get("admin") === "1";
+  const [clinic, setClinicState] = useState(() => Number(params.get("clinic")) || Number(storage.get("ss_clinic")) || null);
+  const [who, setWho] = useState(params.get("as") === "patient" ? "patient" : "staff");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [devCode, setDevCode] = useState("");
-  const isPatient = role === "patient";
+  const isPatient = who === "patient" && !adminMode;
 
-  const pickRole = (r) => { setRole(r); setCodeSent(false); setCode(""); setDevCode(""); };
-  const fillDemo = () => { setPhone(DEMO[role].phone); setPassword(DEMO[role].password || ""); };
+  const setClinic = (id) => { setClinicState(id); setCodeSent(false); setCode(""); setDevCode(""); };
+  const pickWho = (w) => { setWho(w); setCodeSent(false); setCode(""); setDevCode(""); };
+  const needClinic = () => { if (!clinic) throw new Error("Choose your clinic first."); };
 
-  const staff = useSubmit(() => loginStaff(cleanPhone(phone), password));
-  const send = useSubmit(() => requestOtp(cleanPhone(phone)), (res) => { setCodeSent(true); setDevCode(res?.dev_otp || ""); });
-  const verify = useSubmit(() => verifyOtp(cleanPhone(phone), code));
-
+  const staff = useSubmit(() => { if (!adminMode) needClinic(); return loginStaff(cleanPhone(phone), password, adminMode ? undefined : clinic); });
+  const send = useSubmit(() => { needClinic(); return requestOtp(cleanPhone(phone), clinic); }, (res) => { setCodeSent(true); setDevCode(res?.dev_otp || ""); });
+  const verify = useSubmit(() => { needClinic(); return verifyOtp(cleanPhone(phone), code, clinic); });
   const active = !isPatient ? staff : codeSent ? verify : send;
 
+  const fill = (p, pw = "") => { setClinic(1); setPhone(p); setPassword(pw); };
+  const toggleAdmin = () => setParams(adminMode ? {} : { admin: "1" });
+
   return (
-    <AuthShell title="Welcome back" subtitle="Choose your role and log in.">
-      <RolePicker value={role} onChange={pickRole} />
+    <AuthShell
+      title={adminMode ? "Platform admin" : "Welcome back"}
+      subtitle={adminMode ? "For the SmileSYNC team. Clinics sign in from the clinic page." : "Choose your clinic, then sign in."}
+    >
+      {!adminMode && <ClinicPicker value={clinic} onChange={setClinic} />}
+
+      {!adminMode && (
+        <div className="seg" role="radiogroup" aria-label="I am">
+          <button type="button" role="radio" aria-checked={who === "staff"} className={who === "staff" ? "on" : ""} onClick={() => pickWho("staff")}>Clinic team</button>
+          <button type="button" role="radio" aria-checked={who === "patient"} className={who === "patient" ? "on" : ""} onClick={() => pickWho("patient")}>Patient</button>
+        </div>
+      )}
 
       <form onSubmit={active.submit} className="form" noValidate>
         <Field label="Mobile number" error={active.fields.phone}>
@@ -57,6 +77,7 @@ export default function Login() {
         {isPatient && codeSent && devCode && <div className="note info">Test code: <b>{devCode}</b> (only shown while the backend is in debug mode)</div>}
 
         {active.error && <div className="note error" role="alert">{active.error}</div>}
+        {!active.error && active.fields.clinic && <div className="note error" role="alert">{String(active.fields.clinic)}</div>}
 
         <button className="btn primary block" disabled={active.busy}>
           {active.busy ? "Please wait…" : !isPatient ? "Log in" : codeSent ? "Verify and log in" : "Send code on WhatsApp"}
@@ -67,11 +88,17 @@ export default function Login() {
         )}
       </form>
 
-      {isMock() && (
-        <button type="button" className="btn ghost block" onClick={fillDemo}>Fill demo {role} details</button>
+      {isMock() && !adminMode && (
+        <div className="demo-fill">
+          <span className="muted small">Demo accounts:</span>
+          {!isPatient
+            ? DEMO_STAFF.map(([label, p, pw]) => <button type="button" key={p} className="btn small ghost" onClick={() => fill(p, pw)}>{label}</button>)
+            : <button type="button" className="btn small ghost" onClick={() => fill("9111111111")}>Patient</button>}
+        </div>
       )}
 
-      <p className="switch">New here? <Link to="/signup">Create an account</Link></p>
+      <p className="switch">New here? <Link to={clinic ? `/signup?clinic=${clinic}` : "/signup"}>Create an account</Link> · <Link to="/">Find a clinic</Link></p>
+      <p className="switch"><button type="button" className="link" onClick={toggleAdmin}>{adminMode ? "← Back to clinic sign in" : "Platform admin? Sign in here"}</button></p>
     </AuthShell>
   );
 }

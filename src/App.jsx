@@ -2,6 +2,10 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import Layout from "./components/Layout";
+import PublicLayout from "./components/PublicLayout";
+import Marketplace from "./pages/Marketplace";
+import ClinicPage from "./pages/ClinicPage";
+import Team from "./pages/Team";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
@@ -20,7 +24,8 @@ const AdminClinics = lazy(() => import("./admin/Clinics"));
 const AdminUsers = lazy(() => import("./admin/Users"));
 const AdminAudit = lazy(() => import("./admin/Audit"));
 
-const STAFF = ["doctor", "consultant", "assistant"];
+const STAFF = ["clinic_admin", "doctor", "consultant", "assistant"];
+const ADMIN = ["clinic_admin"];
 
 // Wrap a page so only some roles can open it. Others go back to the home screen.
 function Only({ roles, children }) {
@@ -34,9 +39,14 @@ export default function App() {
   if (!user) {
     return (
       <Routes>
+        {/* The marketplace: anyone can browse clinics. Sign in and sign up both start from a clinic. */}
+        <Route element={<PublicLayout />}>
+          <Route index element={<Marketplace />} />
+          <Route path="c/:slug" element={<ClinicPage />} />
+        </Route>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     );
   }
@@ -67,9 +77,10 @@ export default function App() {
         <Route path="patients" element={<Only roles={STAFF}><Patients /></Only>} />
         <Route path="patients/:id" element={<Only roles={STAFF}><PatientDetail /></Only>} />
         <Route path="appointments" element={<Only roles={STAFF}><Appointments /></Only>} />
-        <Route path="hygiene" element={<Only roles={["doctor", "assistant"]}><Hygiene /></Only>} />
+        <Route path="hygiene" element={<Only roles={["clinic_admin", "doctor", "assistant"]}><Hygiene /></Only>} />
         <Route path="inventory" element={<Only roles={STAFF}><Inventory /></Only>} />
-        <Route path="messages" element={<Only roles={["doctor"]}><Messages /></Only>} />
+        <Route path="messages" element={<Only roles={ADMIN}><Messages /></Only>} />
+        <Route path="team" element={<Only roles={ADMIN}><Team /></Only>} />
         <Route path="clinic" element={<Clinic />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

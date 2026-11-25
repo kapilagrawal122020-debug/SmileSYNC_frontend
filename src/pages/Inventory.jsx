@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { api, fmtDate } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { isAdmin } from "../auth/roles";
 import { Async, Badge, Card, Field, Modal, Page, useLoad, useSubmit, useToast } from "../components/ui";
 
 const soon = (d) => d && new Date(d) <= new Date(Date.now() + 30 * 864e5);
 
 export default function Inventory() {
   const { user } = useAuth();
-  const isDoctor = user.role === "doctor";
+  const canManage = isAdmin(user);
   const items = useLoad(() => api.list("/inventory/items/"), []);
   const rules = useLoad(() => api.list("/inventory/rules/"), []);
   const [modal, setModal] = useState(null); // {type, item}
@@ -18,7 +19,7 @@ export default function Inventory() {
   const expiring = (items.data || []).filter((i) => soon(i.expiry_date));
 
   return (
-    <Page title="Inventory" subtitle="Treatment recorded means stock deducted. Log deliveries here." actions={isDoctor && <button className="btn primary" onClick={() => setModal({ type: "item" })}>+ Add item</button>}>
+    <Page title="Inventory" subtitle="Treatment recorded means stock deducted. Log deliveries here." actions={canManage && <button className="btn primary" onClick={() => setModal({ type: "item" })}>+ Add item</button>}>
       {(low.length > 0 || expiring.length > 0) && (
         <div className="note warn" role="status">
           {low.length > 0 && <div><b>Low stock:</b> {low.map((i) => i.name).join(", ")}</div>}
@@ -27,7 +28,7 @@ export default function Inventory() {
       )}
 
       <Card title="Stock">
-        <Async state={items} empty={isDoctor ? "No items yet. Add your first item." : "No items yet. Ask the doctor to add them."}>
+        <Async state={items} empty={canManage ? "No items yet. Add your first item." : "No items yet. Ask the doctor to add them."}>
           {(rows) => (
             <div className="table-wrap">
               <table className="table">
@@ -42,8 +43,8 @@ export default function Inventory() {
                       <td>{i.expiry_date ? fmtDate(i.expiry_date) : "–"} {soon(i.expiry_date) && <Badge tone="amber">Soon</Badge>}</td>
                       <td className="row gap">
                         <button className="btn small primary" onClick={() => setModal({ type: "stockin", item: i })}>Stock in</button>
-                        {isDoctor && <button className="btn small" onClick={() => setModal({ type: "count", item: i })}>Count</button>}
-                        {isDoctor && <button className="btn small ghost" onClick={() => setModal({ type: "item", item: i })}>Edit</button>}
+                        {canManage && <button className="btn small" onClick={() => setModal({ type: "count", item: i })}>Count</button>}
+                        {canManage && <button className="btn small ghost" onClick={() => setModal({ type: "item", item: i })}>Edit</button>}
                       </td>
                     </tr>
                   ))}
@@ -54,7 +55,7 @@ export default function Inventory() {
         </Async>
       </Card>
 
-      <Card title="Usage rules" actions={isDoctor && <button className="btn small" onClick={() => setModal({ type: "rule" })}>+ Add rule</button>}>
+      <Card title="Usage rules" actions={canManage && <button className="btn small" onClick={() => setModal({ type: "rule" })}>+ Add rule</button>}>
         <p className="muted small">When a treatment is marked done, these amounts are taken off the shelf. Example: Composite Class 1 × 3 at 0.2 g uses 0.6 g.</p>
         <Async state={rules} empty="No rules yet.">
           {(rows) => (
@@ -63,7 +64,7 @@ export default function Inventory() {
                 <li key={r.id} className="list-row">
                   <b className="grow">{r.procedure}</b>
                   <span>{Number(r.quantity)} × {r.item_name}</span>
-                  {isDoctor && <RuleDelete id={r.id} onDone={rules.reload} />}
+                  {canManage && <RuleDelete id={r.id} onDone={rules.reload} />}
                 </li>
               ))}
             </ul>

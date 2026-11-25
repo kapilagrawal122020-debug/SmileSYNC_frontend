@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { api, rupees, todayStr } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { isAdmin } from "../auth/roles";
 import { Async, Badge, Card, Page, STATUS_TONE, Stat, label, useLoad } from "../components/ui";
 import VisitList from "../components/VisitList";
 import PatientHome from "./PatientHome";
@@ -12,9 +13,9 @@ export default function Dashboard() {
 }
 
 function StaffToday({ user }) {
-  const isDoctor = user.role === "doctor";
+  const canManage = isAdmin(user);
   const today = useLoad(() => Promise.all([api.list("/visits/", { date: todayStr() }), api.list("/chairs/")]), []);
-  const summary = useLoad(() => (isDoctor ? api.get("/dashboard/") : Promise.resolve(null)), [isDoctor]);
+  const summary = useLoad(() => (canManage ? api.get("/dashboard/") : Promise.resolve(null)), [canManage]);
   const s = summary.data;
 
   return (
@@ -26,7 +27,14 @@ function StaffToday({ user }) {
         <Link className="btn" to="/appointments?new=1">+ Book visit</Link>
       </>}
     >
-      {isDoctor && s && (
+      {canManage && s?.pending_signups > 0 && (
+        <div className="alert-banner amber" role="status">
+          <b>{s.pending_signups} {s.pending_signups === 1 ? "person is" : "people are"} waiting to join your clinic.</b>
+          <span>They cannot log in until you approve them.</span>
+          <Link className="link" to="/team">Review</Link>
+        </div>
+      )}
+      {canManage && s && (
         <div className="stats">
           <Stat label="Visits today" value={s.visits_today} />
           <Stat label="Photos to review" value={s.hygiene_photos_to_review} tone={s.hygiene_photos_to_review ? "warn" : ""} />
@@ -37,7 +45,7 @@ function StaffToday({ user }) {
           <Stat label="Rating (30 days)" value={s.average_rating_30_days ?? "–"} />
         </div>
       )}
-      {isDoctor && summary.error && <p className="muted small">Summary unavailable: {summary.error}</p>}
+      {canManage && summary.error && <p className="muted small">Summary unavailable: {summary.error}</p>}
 
       <div className="split">
         <Card title="Today's appointments" actions={<Link to="/appointments">All appointments</Link>}>

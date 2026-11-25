@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { api, fmtDateTime, fmtTime, todayStr } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { canReview } from "../auth/roles";
 import { Async, Badge, Card, Empty, Field, Page, SecureImage, STATUS_TONE, Stat, buildBody, label, useLoad, useToast } from "../components/ui";
 
 // Same areas the backend accepts.
@@ -9,7 +10,7 @@ const DAILY = [["waiting", "Waiting area"], ["reception", "Reception"], ["operat
 
 export default function Hygiene() {
   const { user } = useAuth();
-  const isDoctor = user.role === "doctor";
+  const canReviewPhotos = canReview(user);
   const data = useLoad(() => Promise.all([
     api.list("/hygiene/checks/"), api.list("/chairs/"), api.list("/visits/", { status: "completed" }),
   ]), []);
@@ -19,7 +20,7 @@ export default function Hygiene() {
       <Async state={data}>
         {([checks, chairs, completed]) => (
           <>
-            {isDoctor && <ReviewQueue checks={checks} reload={data.reload} />}
+            {canReviewPhotos && <ReviewQueue checks={checks} reload={data.reload} />}
             <AfterPatient checks={checks} chairs={chairs} visits={completed} reload={data.reload} />
             <Rounds checks={checks} reload={data.reload} />
           </>

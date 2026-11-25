@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, fmtDate, rupees, todayStr } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { isAdmin } from "../auth/roles";
 import { Async, Badge, Card, Field, Modal, Stat, useLoad, useSubmit, useToast } from "../components/ui";
 
 const METHODS = { cash: "Cash", upi: "UPI", card: "Card", other: "Other", advance: "From advance" };
@@ -11,7 +12,7 @@ const num = (x) => Number(x || 0);
 export default function Billing({ patientId }) {
   const { user } = useAuth();
   const toast = useToast();
-  const isDoctor = user.role === "doctor"; // only the doctor refunds money or removes a wrong entry
+  const canManage = isAdmin(user); // only the clinic admin refunds money or removes a wrong entry
   const summary = useLoad(() => api.get(`/patients/${patientId}/billing/`), [patientId]);
   const advances = useLoad(() => api.list("/advances/", { patient: patientId }), [patientId]);
   const invoices = useLoad(() => api.list("/invoices/", { patient: patientId }), [patientId]);
@@ -54,7 +55,7 @@ export default function Billing({ patientId }) {
           {(rows) => (
             <ul className="list">
               {rows.map((a) => (
-                <AdvanceRow key={a.id} a={a} isDoctor={isDoctor} onRefund={() => setModal({ type: "refund", advance: a })} onDelete={() => removeAdvance(a)} />
+                <AdvanceRow key={a.id} a={a} canManage={canManage} onRefund={() => setModal({ type: "refund", advance: a })} onDelete={() => removeAdvance(a)} />
               ))}
             </ul>
           )}
@@ -114,7 +115,7 @@ export default function Billing({ patientId }) {
 }
 
 // ---- one advance in the list ---------------------------------------------------------------
-function AdvanceRow({ a, isDoctor, onRefund, onDelete }) {
+function AdvanceRow({ a, canManage, onRefund, onDelete }) {
   const left = num(a.balance);
   const used = num(a.used);
   const refunded = num(a.refunded);
@@ -137,7 +138,7 @@ function AdvanceRow({ a, isDoctor, onRefund, onDelete }) {
       {a.refunds?.map((r) => (
         <div key={r.id} className="muted small money">Refunded {rupees(r.amount)} on {fmtDate(r.refunded_at)}{r.note ? ` · ${r.note}` : ""}</div>
       ))}
-      {isDoctor && (left > 0 || untouched) && (
+      {canManage && (left > 0 || untouched) && (
         <div className="row gap end wrap">
           {left > 0 && <button className="btn small" onClick={onRefund}>Refund</button>}
           {untouched && <button className="link text-bad" onClick={onDelete}>Delete entry</button>}
